@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Container, Form, Button } from 'react-bootstrap';
-import { db } from '../firebaseConfig'; // Make sure you have this file set up as per previous instructions
+import { db } from '../firebaseConfig'; // Ensure this path is correct
+import { collection, addDoc } from 'firebase/firestore';
 
 const Contact = () => {
   // State hooks to store form field values
@@ -8,42 +9,41 @@ const Contact = () => {
   const [message, setMessage] = useState('');
 
   // Function to handle form submission
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Add a new document with a generated id to the 'messages' collection
-    db.collection('messages').add({
-      email: email,
-      message: message,
-      createdAt: new Date()
-    })
-    .then(() => {
+    try {
+      // Use addDoc from 'firebase/firestore' to add a document to the 'messages' collection
+      await addDoc(collection(db, "messages"), {
+        email: email,
+        message: message,
+        createdAt: new Date()
+      });
       alert('Message has been submitted!');
       // Reset form fields after submission
       setEmail('');
       setMessage('');
-    })
-    .catch((error) => {
+    } catch (error) {
       alert(error.message);
-    });
+    }
   };
 
   return (
     <Container id='contact' className="my-5">
-      <h3>Contact Me</h3>
+      <h3>contact me</h3>
       <Form onSubmit={handleSubmit}>
         <Form.Group controlId="formBasicEmail">
-          <Form.Label>Email Address</Form.Label>
+          <Form.Label>email address</Form.Label>
           <Form.Control 
             type="email" 
-            placeholder="Enter email" 
+            placeholder="enter email" 
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
         </Form.Group>
 
         <Form.Group controlId="formBasicMessage">
-          <Form.Label>Message</Form.Label>
+          <Form.Label>message</Form.Label>
           <Form.Control 
             as="textarea" 
             rows={3} 
@@ -53,7 +53,7 @@ const Contact = () => {
         </Form.Group>
 
         <Button variant="primary" type="submit">
-          Submit
+          Send
         </Button>
       </Form>
     </Container>

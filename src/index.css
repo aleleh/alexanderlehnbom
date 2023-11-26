@@ -151,6 +151,22 @@ p {
   color: #5FA04E;
 }
 
+.arrow-icon {
+  display: inline-block;
+  transition: transform 0.1s ease-in-out;
+  font-size: 2em;
+}
+
+/* Assuming the anchor tag wraps the entire card */
+a:hover .arrow-icon {
+  transform: rotate(-20deg);
+}
+
+.project-card {
+  background-color: rgb(250, 250, 250);
+  border-radius: 5px;
+}
+
 
 
 
