@@ -12,7 +12,7 @@ const Projects = () => {
     {
       title: 'react e-commerce store',
       link: 'https://e-commerce-store-rwkdt95lx-alexs-projects-952b1d70.vercel.app/',
-      description: "Developed an e-commerce store with React, featuring live API calls for dynamic inventory management."
+      description: "Developed a react app for e-commerce using React, with API calls to a JSON database for product management."
     },
     {
       title: 'website for consulting company',

@@ -12,7 +12,7 @@ const Header = () => {
           <Nav.Link href="#contact" className="bold-nav-link">contact</Nav.Link>
         </Nav>
         <Nav>
-          <Nav.Link href='https://www.linkedin.com' className='linkedin' target="_blank">
+          <Nav.Link href='https://www.linkedin.com/in/alehnbom/' className='linkedin' target="_blank">
             <BiLogoLinkedinSquare />LinkedIn
           </Nav.Link>
         </Nav>
