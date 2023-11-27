@@ -14,7 +14,7 @@ const About = () => {
         </Button> and a particular enthusiasm for{' '}
         <Button href='https://react.dev/' variant="link" className='react-button' target="_blank">
           <BiLogoReact />React
-        </Button>.
+        </Button>
       </p>
     </Container>
   );

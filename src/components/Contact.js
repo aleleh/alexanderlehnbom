@@ -1,26 +1,23 @@
 import React, { useState } from 'react';
-import { Container, Form, Button } from 'react-bootstrap';
-import { db } from '../firebaseConfig'; // Ensure this path is correct
+import { Container, Form, Button, Card } from 'react-bootstrap';
+import { db } from '../firebaseConfig';
 import { collection, addDoc } from 'firebase/firestore';
+import { BiRightArrowAlt } from 'react-icons/bi';
 
 const Contact = () => {
-  // State hooks to store form field values
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
 
-  // Function to handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     try {
-      // Use addDoc from 'firebase/firestore' to add a document to the 'messages' collection
       await addDoc(collection(db, "messages"), {
-        email: email,
-        message: message,
+        email,
+        message,
         createdAt: new Date()
       });
-      alert('Message has been submitted!');
-      // Reset form fields after submission
+      alert('Message has been sent!');
       setEmail('');
       setMessage('');
     } catch (error) {
@@ -30,32 +27,37 @@ const Contact = () => {
 
   return (
     <Container id='contact' className="my-5">
-      <h3>contact me</h3>
-      <Form onSubmit={handleSubmit}>
-        <Form.Group controlId="formBasicEmail">
-          <Form.Label>email address</Form.Label>
-          <Form.Control 
-            type="email" 
-            placeholder="enter email" 
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </Form.Group>
+      <Card style={{ border: 'none', boxShadow: 'none' }}> {/* Inline style to remove border and shadow */}
+        <Card.Body>
+          <h3>contact me</h3>
+          <Form onSubmit={handleSubmit}>
+            <Form.Group controlId="formBasicEmail" className="mb-3">
+              <Form.Label className="no-side-padding no-side-margin">email address</Form.Label>
+              <Form.Control 
+                type="email" 
+                placeholder="enter email" 
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </Form.Group>
 
-        <Form.Group controlId="formBasicMessage">
-          <Form.Label>message</Form.Label>
-          <Form.Control 
-            as="textarea" 
-            rows={3} 
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-          />
-        </Form.Group>
+            <Form.Group controlId="formBasicMessage" className="mb-3">
+              <Form.Label className="no-side-padding no-side-margin">message</Form.Label>
+              <Form.Control 
+                as="textarea" 
+                placeholder="type message" 
+                rows={3} 
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+              />
+            </Form.Group>
 
-        <Button variant="primary" type="submit">
-          Send
-        </Button>
-      </Form>
+            <Button type="submit" className="send-button mt-3"> send message
+            <BiRightArrowAlt className="arrow-icon2" />
+            </Button>
+          </Form>
+        </Card.Body>
+      </Card>
     </Container>
   );
 };

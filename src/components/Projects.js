@@ -7,17 +7,17 @@ const Projects = () => {
     {
       title: 'react web app for investing company',
       link: 'https://deepstone-1eefc.web.app/',
-      description: "Some quick example text to build on the card title and make up the bulk of the card's content."
+      description: "Built an investment analysis platform using React."
     },
     {
       title: 'react e-commerce store',
-      link: 'https://deepstone-1eefc.web.app/',
-      description: "Some quick example text to build on the card title and make up the bulk of the card's content."
+      link: 'https://e-commerce-store-rwkdt95lx-alexs-projects-952b1d70.vercel.app/',
+      description: "Developed an e-commerce store with React, featuring live API calls for dynamic inventory management."
     },
     {
       title: 'website for consulting company',
       link: 'https://xido.se/',
-      description: "Some quick example text to build on the card title and make up the bulk of the card's content."
+      description: "Created a consultancy firm's website using plain HTML, CSS and JavaScript."
     }
     // Add more projects here
   ];
@@ -30,7 +30,7 @@ const Projects = () => {
           <Col xs={12} className="mb-3" key={index}>
             <a href={project.link} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
               <Card>
-                <Card.Body className='d-flex justify-content-between align-items-center'>
+                <Card.Body className='project-card d-flex justify-content-between align-items-center'>
                   <div>
                     <Card.Title>{project.title}</Card.Title>
                     <Card.Text>{project.description}</Card.Text>

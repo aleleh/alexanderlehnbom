@@ -32,9 +32,12 @@ p {
   padding: 8px; /* Adjust padding to create space around the images */
 }
 
+.image-container .custom-image:first-child {
+  margin-bottom: 15px; /* This is the space between the two images in a column */
+}
+
 .custom-image {
   width: 100%; /* Ensures the image is responsive and fits the width of its container */
-  height: auto; /* Keeps the image's aspect ratio intact */
   border-radius: 10px;
 }
 
@@ -52,13 +55,17 @@ p {
   object-fit: cover; /* This will cover the area, cropping the image as needed without stretching it */
 }
 
-.favorite-card-body {
+.favorite-card {
   height: 180px; /* Adjust the height as needed to fit the content */
+  background-color: rgb(250, 250, 250);
+  border: 1px solid rgb(219, 218, 218); 
+  border-radius: 5px;
 }
 
 .bold-nav-link {
   font-weight: semi-bold;
   font-size: 1.2em; 
+  color: black;
 }
 
 .custom-button {
@@ -157,6 +164,16 @@ p {
   font-size: 2em;
 }
 
+.arrow-icon2 {
+  display: inline-block;
+  transition: transform 0.1s ease-in-out;
+  font-size: 1.5em;
+}
+
+button:hover .arrow-icon2 {
+  transform: rotate(-20deg);
+}
+
 /* Assuming the anchor tag wraps the entire card */
 a:hover .arrow-icon {
   transform: rotate(-20deg);
@@ -165,6 +182,58 @@ a:hover .arrow-icon {
 .project-card {
   background-color: rgb(250, 250, 250);
   border-radius: 5px;
+}
+
+.linkedin {
+  color: rgb(0, 0, 0);
+  background-color: rgb(250, 250, 250);
+  border: 1px solid rgb(219, 218, 218); /* Border color similar to React logo */
+  border-radius: 5px; /* Rounded corners */
+  padding: 1px 4px; /* Padding inside the button */
+  font-size: 0.9em; /* Font size for the text */
+  display: inline-flex; /* Aligns the icon and text inline */
+  align-items: center; /* Centers the icon and text vertically */
+  text-decoration: none; /* Removes underline from links */
+}
+
+.linkedin:hover {
+  color: rgb(0, 0, 0);
+  background-color: rgb(250, 250, 250);
+  border: 1px solid rgb(219, 218, 218); /* Border color similar to React logo */
+  border-radius: 5px; /* Rounded corners */
+  padding: 1px 4px; /* Padding inside the button */
+  font-size: 0.9em; /* Font size for the text */
+  display: inline-flex; /* Aligns the icon and text inline */
+  align-items: center; /* Centers the icon and text vertically */
+  text-decoration: none; /* Removes underline from links */
+}
+
+.linkedin svg {
+  color: rgb(10, 102, 194);
+}
+
+.send-button {
+  color: #000000; 
+  background-color: rgb(250, 250, 250);
+  border: 1px solid rgb(219, 218, 218); /* Border color similar to React logo */
+  border-radius: 5px; /* Rounded corners */
+  padding: 1px 4px; /* Padding inside the button */
+  font-size: 0.9em; /* Font size for the text */
+  display: inline-flex; /* Aligns the icon and text inline */
+  align-items: center; /* Centers the icon and text vertically */
+  text-decoration: none; /* Removes underline from links */
+}
+
+.send-button:hover, .react-button:focus, .react-button:active {
+  color: #000000; 
+  background-color: rgb(250, 250, 250);
+  border: 1px solid rgb(219, 218, 218); /* Border color similar to React logo */
+  border-radius: 5px; /* Rounded corners */
+  padding: 1px 4px; /* Padding inside the button */
+  font-size: 0.9em; /* Font size for the text */
+  display: inline-flex; /* Aligns the icon and text inline */
+  align-items: center; /* Centers the icon and text vertically */
+  text-decoration: none; /* Removes underline from links */
 }
 
 
