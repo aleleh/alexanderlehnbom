@@ -5,14 +5,14 @@ import { BiRightArrowAlt } from 'react-icons/bi';
 const Projects = () => {
   const projects = [
     {
-      title: 'react web app for investing company',
+      title: 'web app for investing company',
       link: 'https://deepstone-1eefc.web.app/',
-      description: "Built an investment analysis platform using React."
+      description: "Built a react web app for a investment analysis platform."
     },
     {
       title: 'react e-commerce store',
       link: 'https://e-commerce-store-rwkdt95lx-alexs-projects-952b1d70.vercel.app/',
-      description: "Developed a react app for e-commerce using React, with API calls to a JSON database for product management."
+      description: "Web app for e-commerce using React, with API calls to a JSON database"
     },
     {
       title: 'website for consulting company',
