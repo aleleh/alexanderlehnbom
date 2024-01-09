@@ -14,7 +14,7 @@ const Images = () => {
           <Image src="./img3.jpg" className="custom-image" fluid />
         </Col>
         <Col xs={4} md={4} lg={4} className="image-container">
-          <Image src="./img10.jpg" className="custom-image" fluid />
+          <Image src="./img100.jpg" className="custom-image" fluid />
           <Image src="./img6.jpg" className="custom-image" fluid />
         </Col>
       </Row>

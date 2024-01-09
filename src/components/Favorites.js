@@ -8,7 +8,7 @@ const Favorites = () => {
       title: 'the bear',
       description: 'tv show centered around family and culinary excellence',
       image: 'bear.png',
-      link: 'https://www.amazon.ca/Nonviolent-Communication-Language-Life-Changing-Relationships-ebook/dp/B014OISVU4'
+      link: 'https://www.imdb.com/title/tt14452776/'
     },
     {
       type: 'YouTube Channel',
