@@ -143,8 +143,13 @@ const main = async () => {
           return;
         }
         // Re-encoding keeps the payload compact; raw arrays would be
-        // several times larger in the bundle.
-        routes.push(polyline.encode(trimmed, PRECISION));
+        // several times larger in the bundle. `d` is Strava's own
+        // distance for the activity in metres — the trimmed polyline
+        // would understate it by ~800m per run.
+        routes.push({
+          p: polyline.encode(trimmed, PRECISION),
+          d: Math.round(a.distance || 0),
+        });
       });
 
     console.log(`[routes] page ${page}: ${batch.length} activities, ${routes.length} routes so far`);

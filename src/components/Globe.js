@@ -226,6 +226,7 @@ const buildEarthTexture = () => {
   ctx.putImageData(out, 0, 0);
   bctx.putImageData(bumpOut, 0, 0);
 
+
   const map = new THREE.CanvasTexture(canvas);
   map.colorSpace = THREE.SRGBColorSpace;
   const bumpMap = new THREE.CanvasTexture(bump);
@@ -360,12 +361,100 @@ const vector3ToLatLng = (v) => {
   return [lat, lng];
 };
 
-const clusterRoutes = (routes, precision) => {
+// ─────────────────────────────────────────────────────────────
+// EDIT ME — names for the places the route data lands in.
+// These are read off the coordinates the clusters fall on, not from
+// any record of where Alex actually was, so a few are the nearest
+// recognisable town rather than the exact spot. Correct freely; any
+// cluster without a match within ~0.8 degrees just shows no name.
+// ─────────────────────────────────────────────────────────────
+const PLACE_NAMES = [
+  // Alberta
+  { lat: 51.16, lng: -114.49, name: 'Cochrane, AB' },
+  { lat: 51.07, lng: -114.11, name: 'Calgary, AB' },
+  { lat: 51.09, lng: -115.34, name: 'Canmore, AB' },
+  { lat: 51.16, lng: -115.56, name: 'Banff, AB' },
+  { lat: 49.73, lng: -112.85, name: 'Lethbridge, AB' },
+  { lat: 53.29, lng: -110.64, name: 'Vermilion, AB' },
+  // British Columbia
+  { lat: 49.03, lng: -119.48, name: 'Osoyoos, BC' },
+  { lat: 49.07, lng: -119.71, name: 'Oliver, BC' },
+  { lat: 49.17, lng: -122.66, name: 'Surrey, BC' },
+  // Prairies
+  { lat: 52.12, lng: -106.66, name: 'Saskatoon, SK' },
+  { lat: 50.78, lng: -101.29, name: 'Russell, MB' },
+  { lat: 49.78, lng: -94.46, name: 'Kenora, ON' },
+  // Southern Ontario
+  { lat: 43.44, lng: -79.7, name: 'Oakville, ON' },
+  { lat: 43.65, lng: -79.42, name: 'Toronto, ON' },
+  { lat: 43.62, lng: -79.53, name: 'Etobicoke, ON' },
+  { lat: 43.0, lng: -81.26, name: 'London, ON' },
+  { lat: 44.31, lng: -79.44, name: 'Innisfil, ON' },
+  { lat: 44.8, lng: -79.7, name: 'Georgian Bay, ON' },
+  { lat: 44.54, lng: -80.35, name: 'Collingwood, ON' },
+  { lat: 44.72, lng: -78.34, name: 'Kawartha Lakes, ON' },
+  { lat: 44.46, lng: -76.59, name: 'Rideau Lakes, ON' },
+  { lat: 44.23, lng: -76.49, name: 'Kingston, ON' },
+  { lat: 45.37, lng: -75.73, name: 'Ottawa, ON' },
+  // Quebec + Atlantic
+  { lat: 45.5, lng: -73.59, name: 'Montréal, QC' },
+  { lat: 45.89, lng: -74.16, name: 'Laurentides, QC' },
+  { lat: 45.91, lng: -74.18, name: 'Saint-Sauveur, QC' },
+  { lat: 44.54, lng: -64.32, name: 'Nova Scotia' },
+  // United States
+  { lat: 33.68, lng: -112.01, name: 'Phoenix, AZ' },
+  { lat: 40.74, lng: -73.99, name: 'New York, NY' },
+  // Sweden
+  { lat: 60.71, lng: 17.2, name: 'Gävle, Sweden' },
+  { lat: 60.69, lng: 17.1, name: 'Gävle, Sweden' },
+  { lat: 59.41, lng: 18.0, name: 'Stockholm, Sweden' },
+  // Rest of Europe
+  { lat: 52.36, lng: 4.91, name: 'Amsterdam, Netherlands' },
+  // Latin America + Caribbean
+  { lat: 20.52, lng: -86.94, name: 'Cozumel, Mexico' },
+  { lat: 21.81, lng: -72.16, name: 'Providenciales, Turks & Caicos' },
+  { lat: 19.63, lng: -69.9, name: 'Samaná, Dominican Republic' },
+  { lat: 10.06, lng: -84.25, name: 'Alajuela, Costa Rica' },
+  { lat: 9.32, lng: -83.96, name: 'Puntarenas, Costa Rica' },
+  { lat: 8.58, lng: -79.79, name: 'Panamá' },
+  { lat: -12.12, lng: -77.04, name: 'Lima, Peru' },
+  { lat: -13.51, lng: -71.98, name: 'Cusco, Peru' },
+  // Morocco
+  { lat: 33.6, lng: -7.64, name: 'Casablanca, Morocco' },
+  { lat: 31.64, lng: -8.01, name: 'Marrakesh, Morocco' },
+  { lat: 30.53, lng: -9.69, name: 'Agadir, Morocco' },
+  { lat: 35.16, lng: -5.27, name: 'Chefchaouen, Morocco' },
+  // Japan
+  { lat: 35.72, lng: 139.78, name: 'Tokyo, Japan' },
+  { lat: 35.36, lng: 139.57, name: 'Kamakura, Japan' },
+  { lat: 34.78, lng: 135.61, name: 'Osaka, Japan' },
+];
+
+const nameFor = (lat, lng) => {
+  let best = null;
+  let bestDist = Infinity;
+  PLACE_NAMES.forEach((p) => {
+    const dLat = p.lat - lat;
+    const dLng = (((p.lng - lng + 540) % 360) - 180) * Math.cos((lat * Math.PI) / 180);
+    const d = Math.hypot(dLat, dLng);
+    if (d < bestDist) {
+      bestDist = d;
+      best = p.name;
+    }
+  });
+  return bestDist < 0.8 ? best : null;
+};
+
+// Groups the routes into the places they were run, and totals runs and
+// distance for each so a hovered hot spot can say what it actually is.
+// Distance comes from Strava's own per-activity figure; measuring the
+// trimmed polyline would understate every run by ~800m.
+const clusterRoutes = (decoded, distances) => {
   const CELL_DEG = 0.6; // ~65km
   const cells = new Map();
 
-  routes.forEach((encoded) => {
-    polyline.decode(encoded, precision).forEach(([lat, lng]) => {
+  decoded.forEach((pts) => {
+    pts.forEach(([lat, lng]) => {
       const key = `${Math.round(lat / CELL_DEG)}:${Math.round(lng / CELL_DEG)}`;
       const cell = cells.get(key) || { lat: 0, lng: 0, n: 0 };
       cell.lat += lat;
@@ -375,14 +464,60 @@ const clusterRoutes = (routes, precision) => {
     });
   });
 
-  return [...cells.values()]
+  const clusters = [...cells.values()]
     .filter((c) => c.n >= 40)
-    .map((c) => ({ lat: c.lat / c.n, lng: c.lng / c.n, n: c.n }))
+    .map((c) => ({
+      lat: c.lat / c.n,
+      lng: c.lng / c.n,
+      n: c.n,
+      runs: 0,
+      metres: 0,
+    }))
     .sort((a, b) => b.n - a.n);
+
+  // Each route counts once, against whichever cluster its centre is
+  // nearest — otherwise a single run spanning two cells is double
+  // counted.
+  decoded.forEach((pts, i) => {
+    let sumLat = 0;
+    let sumLng = 0;
+    pts.forEach(([lat, lng]) => {
+      sumLat += lat;
+      sumLng += lng;
+    });
+    const cLat = sumLat / pts.length;
+    const cLng = sumLng / pts.length;
+
+    let best = null;
+    let bestDist = Infinity;
+    clusters.forEach((c) => {
+      const dLat = c.lat - cLat;
+      const dLng = (((c.lng - cLng + 540) % 360) - 180) * Math.cos((cLat * Math.PI) / 180);
+      const d = Math.hypot(dLat, dLng);
+      if (d < bestDist) {
+        bestDist = d;
+        best = c;
+      }
+    });
+    if (best && bestDist < 2) {
+      best.runs += 1;
+      best.metres += distances[i] || 0;
+    }
+  });
+
+  return clusters
+    .filter((c) => c.runs > 0)
+    .map((c) => ({ ...c, name: nameFor(c.lat, c.lng) }));
 };
 
-const Globe = () => {
+const Globe = ({ onHoverPlace }) => {
   const mountRef = useRef(null);
+  // Held in a ref so the scene effect never has to re-run when the
+  // parent re-renders.
+  const hoverCbRef = useRef(onHoverPlace);
+  useEffect(() => {
+    hoverCbRef.current = onHoverPlace;
+  }, [onHoverPlace]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -448,6 +583,13 @@ const Globe = () => {
 
     let zoom = 1;
     const frameCamera = () => {
+      // A zero-sized container makes aspect 0/0, and that NaN propagates
+      // into the camera distance and the projection matrix, blanking the
+      // scene permanently. Happens whenever the globe mounts before
+      // layout or inside a collapsed/hidden pane; the ResizeObserver
+      // below re-frames it once real dimensions arrive.
+      if (!mount.clientWidth || !mount.clientHeight) return;
+
       const aspect = mount.clientWidth / mount.clientHeight;
       const distance = THREE.MathUtils.clamp(baseDistance() * zoom, MIN_DIST, maxDistance());
       camera.position.set(0, 0, distance);
@@ -621,7 +763,8 @@ const Globe = () => {
         // Decode once and reuse for the lines, the heatmap and the
         // click targets — decoding 678 polylines three times would be
         // the slowest thing on the page.
-        const decoded = routeData.routes.map((encoded) => polyline.decode(encoded, precision));
+        const decoded = routeData.routes.map((r) => polyline.decode(r.p, precision));
+        const distances = routeData.routes.map((r) => r.d || 0);
 
         const verts = [];
         decoded.forEach((pts) => {
@@ -665,7 +808,7 @@ const Globe = () => {
         world.add(heatMesh);
 
         // Clusters are no longer drawn — they're only click targets now.
-        clusters = clusterRoutes(routeData.routes, precision);
+        clusters = clusterRoutes(decoded, distances);
 
         const d0 = camera.position.z;
         heatMesh.material.opacity = heatTargetFor(d0);
@@ -759,10 +902,43 @@ const Globe = () => {
       fly = { quat: delta.multiply(world.quaternion.clone()), zoom: targetZoom };
     };
 
+    // Where a cluster currently sits on screen, so the label can be
+    // anchored to the hot spot rather than trailing the cursor.
+    const screenPositionOf = (c) => {
+      const p = latLngToVector3(c.lat, c.lng, RADIUS)
+        .applyQuaternion(world.quaternion)
+        .add(world.position)
+        .project(camera);
+      const rect = renderer.domElement.getBoundingClientRect();
+      return {
+        x: ((p.x + 1) / 2) * rect.width,
+        y: ((1 - p.y) / 2) * rect.height,
+      };
+    };
+
+    const report = (c) => {
+      if (!hoverCbRef.current) return;
+      if (!c) {
+        hoverCbRef.current(null);
+        return;
+      }
+      const { x, y } = screenPositionOf(c);
+      hoverCbRef.current({
+        name: c.name,
+        runs: c.runs,
+        km: c.metres / 1000,
+        x,
+        y,
+      });
+    };
+
     const onClick = (e) => {
       if (dragMoved > 6) return; // that was a drag, not a click
       const c = clusterUnderPointer(e);
       if (!c) return;
+      // Also reports on click so the label is reachable on touch, where
+      // there is no hover.
+      report(c);
       const dir = latLngToVector3(c.lat, c.lng, 1)
         .applyQuaternion(world.quaternion)
         .normalize();
@@ -771,8 +947,12 @@ const Globe = () => {
 
     const onHover = (e) => {
       if (dragging) return;
-      renderer.domElement.style.cursor = clusterUnderPointer(e) ? 'pointer' : 'grab';
+      const c = clusterUnderPointer(e);
+      renderer.domElement.style.cursor = c ? 'pointer' : 'grab';
+      report(c);
     };
+
+    const onLeave = () => report(null);
 
     const onWheel = (e) => {
       e.preventDefault();
@@ -804,16 +984,22 @@ const Globe = () => {
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
     renderer.domElement.addEventListener('click', onClick);
     renderer.domElement.addEventListener('pointermove', onHover);
+    renderer.domElement.addEventListener('pointerleave', onLeave);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
 
     const onResize = () => {
-      if (!mount.clientWidth) return;
+      if (!mount.clientWidth || !mount.clientHeight) return;
       frameCamera();
       renderer.setSize(mount.clientWidth, mount.clientHeight);
       composer.setSize(mount.clientWidth, mount.clientHeight);
     };
     window.addEventListener('resize', onResize);
+
+    // Catches the container gaining size after mount, which a window
+    // resize listener alone would miss.
+    const resizeObserver = new ResizeObserver(onResize);
+    resizeObserver.observe(mount);
 
     // ── Loop ─────────────────────────────────────────────────
     let frame;
@@ -862,12 +1048,14 @@ const Globe = () => {
       disposed = true;
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', onResize);
+      resizeObserver.disconnect();
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('wheel', onWheel);
       renderer.domElement.removeEventListener('click', onClick);
       renderer.domElement.removeEventListener('pointermove', onHover);
+      renderer.domElement.removeEventListener('pointerleave', onLeave);
       earthTexture.dispose();
       earthBump.dispose();
       scene.traverse((obj) => {

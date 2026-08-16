@@ -115,6 +115,37 @@ body {
   background: rgba(252, 76, 2, 0.12);
 }
 
+/* ── Place label ───────────────────────────────────────── */
+/* Anchored to the hot spot itself, nudged up so the pointer and the
+   glow underneath it stay visible. */
+.place-label {
+  position: absolute;
+  z-index: 3;
+  transform: translate(-50%, calc(-100% - 14px));
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  background: rgba(5, 7, 12, 0.82);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(6px);
+  white-space: nowrap;
+}
+
+.place-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.place-stats {
+  font-size: 0.8rem;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 600px) {
   .overlay {
     padding: 1.25rem;
