@@ -5,7 +5,7 @@
   --ink: #f2f5f9;
   --muted: #8c98a8;
   --accent: #fc4c02;
-  --line: rgba(255, 255, 255, 0.12);
+  --line: rgba(255, 255, 255, 0.14);
 }
 
 * {
@@ -35,12 +35,12 @@ body {
   overflow: hidden;
 }
 
-/* Radial lift behind the globe so it doesn't sit on flat black */
+/* Soft lift behind the globe so it doesn't sit on flat black */
 .stage::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 50% 45%, #121a26 0%, #05070c 62%);
+  background: radial-gradient(circle at 50% 50%, #101a28 0%, #05070c 68%);
   z-index: 0;
 }
 
@@ -50,17 +50,14 @@ body {
   z-index: 1;
 }
 
-/* The overlay must not eat the drag gesture — only its
-   actual controls re-enable pointer events. */
+/* The overlay must not eat the drag gesture — only its actual
+   controls re-enable pointer events. */
 .overlay {
   position: absolute;
   inset: 0;
   z-index: 2;
   pointer-events: none;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 2rem clamp(1.25rem, 5vw, 4rem);
+  padding: 2rem clamp(1.25rem, 4vw, 3rem);
 }
 
 /* ── Top bar ───────────────────────────────────────────── */
@@ -97,6 +94,9 @@ body {
 }
 
 .ghost-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: transparent;
   border: 1px solid var(--line);
   color: var(--ink);
@@ -104,226 +104,31 @@ body {
   padding: 0.35rem 0.95rem;
   font: inherit;
   font-size: 0.9rem;
+  text-decoration: none;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .ghost-button:hover {
+  color: var(--ink);
   border-color: var(--accent);
   background: rgba(252, 76, 2, 0.12);
 }
 
-/* ── Readout ───────────────────────────────────────────── */
-/* Auto margins centre the readout in the space left by the top bar. */
-.readout {
-  max-width: 22em;
-  margin-block: auto;
-}
-
-.eyebrow {
-  font-size: 0.85rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin: 0 0 0.75rem;
-}
-
-.figure {
-  font-size: clamp(3.5rem, 11vw, 7.5rem);
-  font-weight: 600;
-  line-height: 0.95;
-  letter-spacing: -0.03em;
-  margin: 0;
-  font-variant-numeric: tabular-nums;
-}
-
-.figure-unit {
-  font-size: 0.28em;
-  font-weight: 400;
-  color: var(--muted);
-  margin-left: 0.4em;
-  letter-spacing: 0;
-}
-
-.claim {
-  font-size: 1.05rem;
-  line-height: 1.5;
-  color: var(--muted);
-  margin: 1rem 0 0;
-  max-width: 20em;
-}
-
-.claim strong {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.mini-stats {
-  display: flex;
-  gap: 2.25rem;
-  margin: 1.75rem 0 0;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--line);
-}
-
-.mini-stats div {
-  display: flex;
-  flex-direction: column-reverse;
-}
-
-.mini-stats dt {
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--muted);
-  margin-top: 0.2rem;
-}
-
-.mini-stats dd {
-  margin: 0;
-  font-size: 1.35rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── Contact panel ─────────────────────────────────────── */
-.panel-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-  background: rgba(5, 7, 12, 0.72);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.25rem;
-}
-
-.panel {
-  position: relative;
-  width: min(420px, 100%);
-  background: #0d1117;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 1.75rem;
-}
-
-.panel-close {
-  position: absolute;
-  top: 0.6rem;
-  right: 0.9rem;
-  background: none;
-  border: none;
-  color: var(--muted);
-  font-size: 1.6rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.panel-close:hover {
-  color: var(--ink);
-}
-
-.panel-title {
-  margin: 0 0 1.25rem;
-  font-size: 1.5rem;
-  font-weight: 600;
-}
-
-.panel-label {
-  display: block;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--muted);
-  margin-bottom: 0.35rem;
-}
-
-.panel-input {
-  width: 100%;
-  background: #05070c;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--ink);
-  font: inherit;
-  font-size: 0.95rem;
-  padding: 0.6rem 0.75rem;
-  margin-bottom: 1rem;
-  resize: vertical;
-}
-
-.panel-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.panel-submit {
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 0.65rem 1.4rem;
-  font: inherit;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: opacity 0.15s ease;
-}
-
-.panel-submit:hover:not(:disabled) {
-  opacity: 0.88;
-}
-
-.panel-submit:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.panel-sent {
-  color: var(--accent);
-  margin: 0;
-}
-
-.panel-error {
-  color: #ff7a5c;
-  font-size: 0.9rem;
-  margin: 0.75rem 0 0;
-}
-
-/* ── Small screens ─────────────────────────────────────── */
 @media (max-width: 600px) {
   .overlay {
     padding: 1.25rem;
-  }
-
-  /* The globe sits behind the readout on narrow screens, so the copy
-     needs a scrim to stay legible over the dot shell. */
-  .overlay::before {
-    content: '';
-    position: absolute;
-    inset: auto 0 0 0;
-    height: 58%;
-    background: linear-gradient(to top, var(--bg) 34%, rgba(5, 7, 12, 0.82) 62%, transparent);
-    z-index: -1;
-    pointer-events: none;
   }
 
   .wordmark {
     font-size: 0.95rem;
   }
 
-  /* Narrow screens stack globe-then-text, so the readout stays low. */
-  .readout {
-    max-width: none;
-    margin-top: auto;
-    margin-bottom: 0;
+  .ghost-button span {
+    display: none;
   }
 
-  .mini-stats {
-    gap: 1.5rem;
+  .ghost-button {
+    padding: 0.4rem 0.6rem;
   }
-
-  .mini-stats dd {
-    font-size: 1.1rem;
-  }
-
 }

@@ -8,7 +8,6 @@
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
     "bootstrap": "^5.3.2",
-    "firebase": "^10.6.0",
     "react": "^18.2.0",
     "react-bootstrap": "^2.9.1",
     "react-dom": "^18.2.0",
@@ -24,9 +23,8 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "fetch:strava": "node scripts/fetch-strava-stats.js",
-    "prestart": "node scripts/fetch-strava-stats.js && node scripts/fetch-strava-routes.js",
-    "prebuild": "node scripts/fetch-strava-stats.js && node scripts/fetch-strava-routes.js",
+    "prestart": "node scripts/fetch-strava-routes.js",
+    "prebuild": "node scripts/fetch-strava-routes.js",
     "fetch:routes": "node scripts/fetch-strava-routes.js"
   },
   "eslintConfig": {
