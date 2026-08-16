@@ -6,74 +6,20 @@ import landTopo from 'world-atlas/land-110m.json';
 
 const RADIUS = 1;
 const EARTH_CIRCUMFERENCE_KM = 40075;
-// Bright, because at full-globe scale every route is packed into a few
-// pixels; additive blending turns that cluster into a visible glow.
-const ROUTE_OPACITY = 0.85;
+// Bright: at full-globe scale the routes occupy a few pixels, and
+// additive blending turns that cluster into a visible glow.
+const ROUTE_OPACITY = 0.9;
+
+// Cochrane, AB — the city on Alex's Strava profile. Used only for the
+// opening orientation and as the trail's start. Every marker on the
+// globe is derived from real route data, not from a hand-written list.
+const HOME = { lat: 51.19, lng: -114.47 };
 
 // Real Natural Earth coastlines, not an approximation of them.
 const LAND = feature(landTopo, landTopo.objects.land);
 
-// Equirectangular raster used purely as a land/ocean lookup, so each
-// candidate dot can ask "am I on land?" in O(1).
-const MASK_W = 2048;
-const MASK_H = 1024;
-
-const buildLandMask = () => {
-  const canvas = document.createElement('canvas');
-  canvas.width = MASK_W;
-  canvas.height = MASK_H;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, MASK_W, MASK_H);
-  ctx.fillStyle = '#fff';
-
-  const drawRing = (ring) => {
-    ring.forEach(([lng, lat], i) => {
-      const x = ((lng + 180) / 360) * MASK_W;
-      const y = ((90 - lat) / 180) * MASK_H;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.closePath();
-  };
-
-  ctx.beginPath();
-  LAND.features.forEach((f) => {
-    const { type, coordinates } = f.geometry;
-    if (type === 'Polygon') coordinates.forEach(drawRing);
-    else if (type === 'MultiPolygon') coordinates.forEach((poly) => poly.forEach(drawRing));
-  });
-  ctx.fill('evenodd');
-
-  const { data } = ctx.getImageData(0, 0, MASK_W, MASK_H);
-  return (lat, lng) => {
-    const x = Math.min(MASK_W - 1, Math.max(0, Math.floor(((lng + 180) / 360) * MASK_W)));
-    const y = Math.min(MASK_H - 1, Math.max(0, Math.floor(((90 - lat) / 180) * MASK_H)));
-    return data[(y * MASK_W + x) * 4] > 128;
-  };
-};
-
-// Inverse of latLngToVector3, for asking the mask about a sphere point.
-const vector3ToLatLng = (v) => {
-  const lat = 90 - (Math.acos(v.y / v.length()) * 180) / Math.PI;
-  let lng = (Math.atan2(v.z, -v.x) * 180) / Math.PI - 180;
-  while (lng < -180) lng += 360;
-  while (lng > 180) lng -= 360;
-  return [lat, lng];
-};
-
-// ─────────────────────────────────────────────────────────────
-// EDIT ME — places pinned on the globe.
-// Only "Cochrane" is confirmed (it's the city on Alex's Strava
-// profile). The rest are guesses inferred from the photos that
-// were on the old site — correct or delete them.
-// ─────────────────────────────────────────────────────────────
-const PLACES = [
-  { name: 'Cochrane, AB', lat: 51.19, lng: -114.47, home: true },
-  { name: 'Stockholm', lat: 59.33, lng: 18.07 },
-  { name: 'Kathmandu', lat: 27.72, lng: 85.32 },
-  { name: 'Cusco', lat: -13.53, lng: -71.97 },
-];
+const TEX_W = 2048;
+const TEX_H = 1024;
 
 const latLngToVector3 = (lat, lng, radius) => {
   const phi = (90 - lat) * (Math.PI / 180);
@@ -85,25 +31,73 @@ const latLngToVector3 = (lat, lng, radius) => {
   );
 };
 
-// Evenly scatters points over a sphere. Random placement clumps;
-// the golden-angle spiral does not.
-const fibonacciSphere = (count, radius) => {
-  const points = [];
-  const golden = Math.PI * (3 - Math.sqrt(5));
-  for (let i = 0; i < count; i++) {
-    const y = 1 - (i / (count - 1)) * 2;
-    const r = Math.sqrt(1 - y * y);
-    const theta = golden * i;
-    points.push(
-      new THREE.Vector3(Math.cos(theta) * r, y, Math.sin(theta) * r).multiplyScalar(radius)
-    );
-  }
-  return points;
+// Paints the continents as solid landmasses on an equirectangular
+// canvas, which becomes the globe's surface. This replaces the old dot
+// shell: dots now mean "Alex ran here", so the land itself has to be
+// drawn rather than implied by a scatter of points.
+const buildEarthTexture = () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = TEX_W;
+  canvas.height = TEX_H;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#070c13';
+  ctx.fillRect(0, 0, TEX_W, TEX_H);
+
+  const trace = (ring) => {
+    ring.forEach(([lng, lat], i) => {
+      const x = ((lng + 180) / 360) * TEX_W;
+      const y = ((90 - lat) / 180) * TEX_H;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+  };
+
+  ctx.beginPath();
+  LAND.features.forEach((f) => {
+    const { type, coordinates } = f.geometry;
+    if (type === 'Polygon') coordinates.forEach(trace);
+    else if (type === 'MultiPolygon') coordinates.forEach((poly) => poly.forEach(trace));
+  });
+
+  ctx.fillStyle = '#1b2a3a';
+  ctx.fill('evenodd');
+  ctx.strokeStyle = '#33546e';
+  ctx.lineWidth = 1.1;
+  ctx.stroke();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+};
+
+// Buckets every GPS point into a coarse grid so the globe can show one
+// marker per place Alex actually runs, instead of 678 overlapping
+// traces that vanish at planet scale.
+const clusterRoutes = (routes, precision) => {
+  const CELL_DEG = 0.6; // ~65km
+  const cells = new Map();
+
+  routes.forEach((encoded) => {
+    polyline.decode(encoded, precision).forEach(([lat, lng]) => {
+      const key = `${Math.round(lat / CELL_DEG)}:${Math.round(lng / CELL_DEG)}`;
+      const cell = cells.get(key) || { lat: 0, lng: 0, n: 0 };
+      cell.lat += lat;
+      cell.lng += lng;
+      cell.n += 1;
+      cells.set(key, cell);
+    });
+  });
+
+  return [...cells.values()]
+    .filter((c) => c.n >= 40)
+    .map((c) => ({ lat: c.lat / c.n, lng: c.lng / c.n, n: c.n }))
+    .sort((a, b) => b.n - a.n);
 };
 
 const Globe = ({ totalKm }) => {
   const mountRef = useRef(null);
-  // Held in a ref so the animation loop reads fresh values without restarting.
   const progressRef = useRef(0);
 
   useEffect(() => {
@@ -122,15 +116,16 @@ const Globe = ({ totalKm }) => {
     // close zoom impossible.
     const camera = new THREE.PerspectiveCamera(45, mount.clientWidth / mount.clientHeight, 0.0015, 100);
 
-    // Wide screens put the globe right of centre to clear the readout;
-    // narrow ones centre it and pull back so it still fits the frame.
-    // Assigned further down, but frameCamera runs before that, so they
-    // start null rather than sitting in the temporal dead zone.
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(mount.clientWidth, mount.clientHeight);
+    mount.appendChild(renderer.domElement);
+
     let atmosphere = null;
-    let landDots = null;
-    // Globe-scale storytelling (trail, runner, place pins). At city zoom
-    // these are hundreds of km across and would swallow the screen.
+    // Globe-scale storytelling (trail, runner). At city zoom these are
+    // hundreds of km across and would swallow the screen.
     let decor = null;
+    const markers = [];
 
     let zoom = 1;
     const frameCamera = () => {
@@ -138,36 +133,28 @@ const Globe = ({ totalKm }) => {
       const wide = aspect > 1.1;
       const distance = (wide ? 4.0 : 6.0) * zoom;
       camera.position.set(0, 0, distance);
-      // The offset shrinks as you zoom in, so a close-up centres itself
-      // instead of drifting off the edge of the screen.
       world.position.set(wide ? 1.15 * zoom : 0, wide ? 0 : 0.62 * zoom, 0);
       camera.aspect = aspect;
       camera.updateProjectionMatrix();
 
-      // Close in, the camera passes inside the atmosphere shell (radius
-      // 1.16) and the land dots balloon under size attenuation. Both are
-      // globe-scale decoration, so they drop away and let the coastlines
-      // and routes carry the close view.
       const close = distance < 1.35;
       if (atmosphere) atmosphere.visible = !close;
-      if (landDots) landDots.visible = !close;
       if (decor) decor.visible = !close;
+      // Markers shrink with the camera so they stay a constant size on
+      // screen rather than swelling into blobs as you close in.
+      markers.forEach((m) => {
+        m.dot.scale.setScalar(zoom);
+        m.ring.scale.setScalar(zoom);
+      });
     };
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(mount.clientWidth, mount.clientHeight);
-    mount.appendChild(renderer.domElement);
-
-    // Everything rotates together, so drag/auto-rotate moves one object.
     const world = new THREE.Group();
 
     // Open facing home. Almost all the route data sits within ~50km of
     // Cochrane, so a default orientation anywhere else shows an empty
     // ocean and the runs appear to be missing.
-    const homePlace = PLACES.find((p) => p.home) || PLACES[0];
     world.quaternion.setFromUnitVectors(
-      latLngToVector3(homePlace.lat, homePlace.lng, 1).normalize(),
+      latLngToVector3(HOME.lat, HOME.lng, 1).normalize(),
       new THREE.Vector3(0, 0, 1)
     );
     world.quaternion.premultiply(
@@ -179,36 +166,24 @@ const Globe = ({ totalKm }) => {
     world.add(decor);
     frameCamera();
 
-    // Solid core, slightly smaller than the dots so they read as a shell.
+    // ── The earth ────────────────────────────────────────────
+    const earthTexture = buildEarthTexture();
+    earthTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
     const core = new THREE.Mesh(
-      new THREE.SphereGeometry(RADIUS * 0.985, 64, 48),
-      new THREE.MeshBasicMaterial({ color: 0x0d1117 })
+      new THREE.SphereGeometry(RADIUS, 96, 64),
+      new THREE.MeshBasicMaterial({ map: earthTexture })
     );
     world.add(core);
 
-    // Land dots — sample an even sphere distribution, keep only what
-    // falls on a continent. The dots themselves draw the world map.
-    const isLand = buildLandMask();
-    const landPoints = fibonacciSphere(46000, RADIUS).filter((p) => {
-      const [lat, lng] = vector3ToLatLng(p);
-      return isLand(lat, lng);
-    });
-    const dotGeo = new THREE.BufferGeometry().setFromPoints(landPoints);
-    landDots = new THREE.Points(
-      dotGeo,
-      new THREE.PointsMaterial({ color: 0x9fb3c8, size: 0.0085, sizeAttenuation: true })
-    );
-    world.add(landDots);
-
-    // Coastline outlines, so the continents have crisp edges rather
-    // than only a dot texture.
+    // Vector coastlines on top of the texture: they stay crisp at any
+    // zoom, where the raster starts to blur.
     const coastMat = new THREE.LineBasicMaterial({
-      color: 0x5b7086,
+      color: 0x4d7a99,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.5,
     });
     const addRing = (ring) => {
-      const pts = ring.map(([lng, lat]) => latLngToVector3(lat, lng, RADIUS * 1.004));
+      const pts = ring.map(([lng, lat]) => latLngToVector3(lat, lng, RADIUS * 1.0015));
       if (pts.length < 2) return;
       world.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), coastMat));
     };
@@ -218,58 +193,7 @@ const Globe = ({ totalKm }) => {
       else if (type === 'MultiPolygon') coordinates.forEach((poly) => poly.forEach(addRing));
     });
 
-    // ── Real routes ──────────────────────────────────────────
-    // Loaded as its own chunk so ~175kB of GPS traces never blocks the
-    // first paint — the globe appears immediately and the runs land on
-    // it a moment later. Merged into a single LineSegments so 678
-    // traces cost one draw call, with additive blending so overlapping
-    // runs burn brighter. That is what makes it read as a heatmap.
-    let routeMesh = null;
-    let disposed = false;
-
-    import('../stravaRoutes.json')
-      .then(({ default: routeData }) => {
-        if (disposed || !routeData.routes.length) return;
-        const precision = routeData.precision || 5;
-        const verts = [];
-        routeData.routes.forEach((encoded) => {
-          const pts = polyline.decode(encoded, precision);
-          for (let i = 0; i < pts.length - 1; i++) {
-            const a = latLngToVector3(pts[i][0], pts[i][1], RADIUS * 1.006);
-            const b = latLngToVector3(pts[i + 1][0], pts[i + 1][1], RADIUS * 1.006);
-            verts.push(a.x, a.y, a.z, b.x, b.y, b.z);
-          }
-        });
-        const routeGeo = new THREE.BufferGeometry();
-        routeGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-        routeMesh = new THREE.LineSegments(
-          routeGeo,
-          new THREE.LineBasicMaterial({
-            color: 0xff6a2b,
-            transparent: true,
-            opacity: 0,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-          })
-        );
-        world.add(routeMesh);
-      })
-      .catch((err) => console.error('Failed to load routes', err));
-
-    // Faint graticule for depth while spinning.
-    const gridMat = new THREE.LineBasicMaterial({ color: 0x263445, transparent: true, opacity: 0.5 });
-    for (let lat = -60; lat <= 60; lat += 30) {
-      const pts = [];
-      const r = RADIUS * Math.cos((lat * Math.PI) / 180);
-      const y = RADIUS * Math.sin((lat * Math.PI) / 180);
-      for (let a = 0; a <= 64; a++) {
-        const t = (a / 64) * Math.PI * 2;
-        pts.push(new THREE.Vector3(Math.cos(t) * r, y, Math.sin(t) * r));
-      }
-      world.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
-    }
-
-    // Fake atmospheric rim: a larger inside-out sphere.
+    // Fake atmospheric rim.
     atmosphere = new THREE.Mesh(
       new THREE.SphereGeometry(RADIUS * 1.16, 48, 32),
       new THREE.MeshBasicMaterial({
@@ -282,10 +206,7 @@ const Globe = ({ totalKm }) => {
     world.add(atmosphere);
 
     // ── The run trail ────────────────────────────────────────
-    // A great circle starting at home and heading east. Its drawn
-    // length is the fraction of the Earth Alex has actually run.
-    const home = PLACES.find((p) => p.home) || PLACES[0];
-    const start = latLngToVector3(home.lat, home.lng, 1).normalize();
+    const start = latLngToVector3(HOME.lat, HOME.lng, 1).normalize();
     const tangent = new THREE.Vector3().crossVectors(start, new THREE.Vector3(0, 1, 0)).normalize();
 
     const TRAIL_SEGMENTS = 600;
@@ -303,13 +224,9 @@ const Globe = ({ totalKm }) => {
     const trailGeo = new THREE.TubeGeometry(trailCurve, TRAIL_SEGMENTS, 0.007, 8, true);
     const trailTotalIndices = trailGeo.index.count;
     trailGeo.setDrawRange(0, 0);
-    const trail = new THREE.Mesh(
-      trailGeo,
-      new THREE.MeshBasicMaterial({ color: 0xfc4c02 })
-    );
+    const trail = new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({ color: 0xfc4c02 }));
     decor.add(trail);
 
-    // Faint full ring showing the whole lap, so the trail reads as progress.
     const ghostGeo = new THREE.TubeGeometry(trailCurve, TRAIL_SEGMENTS, 0.0022, 6, true);
     decor.add(
       new THREE.Mesh(
@@ -318,36 +235,11 @@ const Globe = ({ totalKm }) => {
       )
     );
 
-    // Marker that rides the leading edge of the trail.
     const runner = new THREE.Mesh(
       new THREE.SphereGeometry(0.026, 16, 16),
       new THREE.MeshBasicMaterial({ color: 0xffffff })
     );
     decor.add(runner);
-
-    // ── Place markers ────────────────────────────────────────
-    const markers = [];
-    PLACES.forEach((place) => {
-      const pos = latLngToVector3(place.lat, place.lng, RADIUS * 1.01);
-      const color = place.home ? 0xfc4c02 : 0x63b3ed;
-
-      const dot = new THREE.Mesh(
-        new THREE.SphereGeometry(place.home ? 0.019 : 0.014, 16, 16),
-        new THREE.MeshBasicMaterial({ color })
-      );
-      dot.position.copy(pos);
-      decor.add(dot);
-
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(0.028, 0.034, 32),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
-      );
-      ring.position.copy(pos);
-      ring.lookAt(0, 0, 0);
-      decor.add(ring);
-
-      markers.push({ ring, phase: Math.random() * Math.PI * 2 });
-    });
 
     // ── Starfield ────────────────────────────────────────────
     const starPts = [];
@@ -367,10 +259,76 @@ const Globe = ({ totalKm }) => {
       )
     );
 
+    // ── Routes + run markers ─────────────────────────────────
+    let routeMesh = null;
+    let disposed = false;
+    const markerGroup = new THREE.Group();
+    world.add(markerGroup);
+
+    import('../stravaRoutes.json')
+      .then(({ default: routeData }) => {
+        if (disposed || !routeData.routes.length) return;
+        const precision = routeData.precision || 5;
+
+        const verts = [];
+        routeData.routes.forEach((encoded) => {
+          const pts = polyline.decode(encoded, precision);
+          for (let i = 0; i < pts.length - 1; i++) {
+            const a = latLngToVector3(pts[i][0], pts[i][1], RADIUS * 1.006);
+            const b = latLngToVector3(pts[i + 1][0], pts[i + 1][1], RADIUS * 1.006);
+            verts.push(a.x, a.y, a.z, b.x, b.y, b.z);
+          }
+        });
+        const routeGeo = new THREE.BufferGeometry();
+        routeGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+        routeMesh = new THREE.LineSegments(
+          routeGeo,
+          new THREE.LineBasicMaterial({
+            color: 0xff7a3d,
+            transparent: true,
+            opacity: 0,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          })
+        );
+        world.add(routeMesh);
+
+        // One marker per place he actually runs.
+        const clusters = clusterRoutes(routeData.routes, precision);
+        clusters.forEach((c, i) => {
+          const pos = latLngToVector3(c.lat, c.lng, RADIUS * 1.012);
+          const primary = i === 0;
+          const colour = primary ? 0xfc4c02 : 0xffa06b;
+
+          const dot = new THREE.Mesh(
+            new THREE.SphereGeometry(primary ? 0.017 : 0.012, 16, 16),
+            new THREE.MeshBasicMaterial({ color: colour })
+          );
+          dot.position.copy(pos);
+          dot.userData.cluster = c;
+          markerGroup.add(dot);
+
+          const ring = new THREE.Mesh(
+            new THREE.RingGeometry(0.026, 0.032, 32),
+            new THREE.MeshBasicMaterial({
+              color: colour,
+              transparent: true,
+              opacity: 0.75,
+              side: THREE.DoubleSide,
+            })
+          );
+          ring.position.copy(pos);
+          ring.lookAt(0, 0, 0);
+          markerGroup.add(ring);
+
+          markers.push({ dot, ring, cluster: c, phase: Math.random() * Math.PI * 2 });
+        });
+
+        frameCamera();
+      })
+      .catch((err) => console.error('Failed to load routes', err));
+
     // ── Drag to spin ─────────────────────────────────────────
-    // Rotation is quaternion-based, not Euler. The globe now starts
-    // pre-oriented towards home, and driving that with Euler angles
-    // gimbals as soon as you drag past the poles.
     const AXIS_Y = new THREE.Vector3(0, 1, 0);
     const AXIS_X = new THREE.Vector3(1, 0, 0);
     const spinBy = (angle, axis) => {
@@ -378,12 +336,15 @@ const Globe = ({ totalKm }) => {
     };
 
     let dragging = false;
+    let dragMoved = 0;
     let lastX = 0;
     let lastY = 0;
     let velocity = 0;
+    let fly = null;
 
     const onPointerDown = (e) => {
       dragging = true;
+      dragMoved = 0;
       lastX = e.clientX;
       lastY = e.clientY;
       renderer.domElement.style.cursor = 'grabbing';
@@ -392,9 +353,11 @@ const Globe = ({ totalKm }) => {
       if (!dragging) return;
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
+      dragMoved += Math.abs(dx) + Math.abs(dy);
       lastX = e.clientX;
       lastY = e.clientY;
       velocity = dx * 0.005;
+      fly = null;
       spinBy(velocity, AXIS_Y);
       spinBy(dy * 0.004, AXIS_X);
     };
@@ -403,25 +366,52 @@ const Globe = ({ totalKm }) => {
       renderer.domElement.style.cursor = 'grab';
     };
 
-    // Which point on the globe is under the pointer, as a world-space
-    // direction from the globe's centre. Null when the pointer is off
-    // the globe entirely.
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
-    const surfaceUnderPointer = (e) => {
+    const setPointer = (e) => {
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
+    };
+    const surfaceUnderPointer = (e) => {
+      setPointer(e);
       const hits = raycaster.intersectObject(core, false);
       if (!hits.length) return null;
       return hits[0].point.clone().sub(world.position).normalize();
     };
+    const markerUnderPointer = (e) => {
+      if (!markers.length) return null;
+      setPointer(e);
+      const hits = raycaster.intersectObjects(markers.map((m) => m.dot), false);
+      return hits.length ? hits[0].object : null;
+    };
+
+    // Animates the globe so a place rotates to face the camera while
+    // the camera closes in — the fastest way from "somewhere I ran" to
+    // reading the actual streets.
+    const flyToDirection = (dirWorld, targetZoom) => {
+      const centre = camera.position.clone().sub(world.position).normalize();
+      const delta = new THREE.Quaternion().setFromUnitVectors(dirWorld, centre);
+      fly = { quat: delta.multiply(world.quaternion.clone()), zoom: targetZoom };
+    };
+
+    const onClick = (e) => {
+      if (dragMoved > 6) return; // that was a drag, not a click
+      const hit = markerUnderPointer(e);
+      if (!hit) return;
+      const dir = hit.position.clone().applyQuaternion(world.quaternion).normalize();
+      flyToDirection(dir, 0.2565);
+    };
+
+    const onHover = (e) => {
+      if (dragging) return;
+      renderer.domElement.style.cursor = markerUnderPointer(e) ? 'pointer' : 'grab';
+    };
 
     const onWheel = (e) => {
       e.preventDefault();
-      // Per-event factor is clamped so one trackpad fling can't jump the
-      // whole zoom range.
+      fly = null;
       const factor = THREE.MathUtils.clamp(1 + e.deltaY * 0.0012, 0.9, 1.12);
       const before = zoom;
       // 0.2565 puts the camera ~0.026 above a radius-1 globe: roughly a
@@ -437,7 +427,7 @@ const Globe = ({ totalKm }) => {
         if (hit) {
           const centre = camera.position.clone().sub(world.position).normalize();
           const delta = new THREE.Quaternion().setFromUnitVectors(hit, centre);
-          const target = delta.multiply(world.quaternion);
+          const target = delta.multiply(world.quaternion.clone());
           const strength = THREE.MathUtils.clamp((1 - zoom / before) * 2.5, 0, 0.5);
           world.quaternion.slerp(target, strength);
         }
@@ -448,6 +438,8 @@ const Globe = ({ totalKm }) => {
     renderer.domElement.style.cursor = 'grab';
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
+    renderer.domElement.addEventListener('click', onClick);
+    renderer.domElement.addEventListener('pointermove', onHover);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
 
@@ -466,23 +458,27 @@ const Globe = ({ totalKm }) => {
     const animate = () => {
       frame = requestAnimationFrame(animate);
       const elapsed = clock.getElapsedTime();
-      // Clamped so a backgrounded tab doesn't resume with one huge jump.
       const delta = Math.min(clock.getDelta(), 0.1);
-      // Frame-rate independent smoothing: same motion at 60Hz and 120Hz.
       const ease = (rate) => 1 - Math.exp(-delta * rate);
 
-      if (!dragging) {
+      if (fly) {
+        world.quaternion.slerp(fly.quat, ease(3.5));
+        zoom += (fly.zoom - zoom) * ease(3.0);
+        frameCamera();
+        if (Math.abs(zoom - fly.zoom) < 0.002 && world.quaternion.angleTo(fly.quat) < 0.01) {
+          fly = null;
+        }
+      } else if (!dragging) {
         if (Math.abs(velocity) > 0.0002) {
           spinBy(velocity * delta * 60, AXIS_Y);
           velocity *= Math.exp(-delta * 3.7);
-        } else if (!prefersReduced) {
-          // Slow: the opening view is aimed at home, and a brisk spin
-          // would carry the route data out of sight before you saw it.
+        } else if (!prefersReduced && zoom > 0.9) {
+          // Only idles when zoomed out; drifting while someone is
+          // reading their own streets would be maddening.
           spinBy(0.045 * delta, AXIS_Y);
         }
       }
 
-      // Ease the trail out to its true length.
       const target = progressRef.current;
       drawn += (target - drawn) * ease(1.1);
       trailGeo.setDrawRange(0, Math.floor(trailTotalIndices * drawn));
@@ -491,7 +487,6 @@ const Globe = ({ totalKm }) => {
       runner.position.copy(trailCurve.getPointAt(headT % 1));
       runner.scale.setScalar(1 + Math.sin(elapsed * 4) * 0.15);
 
-      // Fade the routes in once their chunk arrives.
       if (routeMesh && routeMesh.material.opacity < ROUTE_OPACITY) {
         routeMesh.material.opacity = Math.min(
           ROUTE_OPACITY,
@@ -499,11 +494,10 @@ const Globe = ({ totalKm }) => {
         );
       }
 
-      markers.forEach((m, i) => {
-        const pulse = 1 + Math.sin(elapsed * 2 + m.phase) * 0.25;
-        m.ring.scale.setScalar(pulse);
+      markers.forEach((m) => {
+        const pulse = 1 + Math.sin(elapsed * 2 + m.phase) * 0.28;
+        m.ring.scale.setScalar(zoom * pulse);
         m.ring.material.opacity = 0.35 + Math.sin(elapsed * 2 + m.phase) * 0.25;
-        if (i === 0) m.ring.material.opacity = 0.6;
       });
 
       renderer.render(scene, camera);
@@ -518,6 +512,9 @@ const Globe = ({ totalKm }) => {
       window.removeEventListener('pointerup', onPointerUp);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('wheel', onWheel);
+      renderer.domElement.removeEventListener('click', onClick);
+      renderer.domElement.removeEventListener('pointermove', onHover);
+      earthTexture.dispose();
       scene.traverse((obj) => {
         if (obj.geometry) obj.geometry.dispose();
         if (obj.material) {
@@ -534,4 +531,4 @@ const Globe = ({ totalKm }) => {
 };
 
 export default Globe;
-export { EARTH_CIRCUMFERENCE_KM, PLACES };
+export { EARTH_CIRCUMFERENCE_KM };
