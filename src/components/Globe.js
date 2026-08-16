@@ -1,5 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { feature } from 'topojson-client';
 import polyline from '@mapbox/polyline';
 import landTopo from 'world-atlas/land-110m.json';
@@ -30,26 +33,66 @@ const latLngToVector3 = (lat, lng, radius) => {
   );
 };
 
-// Paints the continents as solid landmasses on an equirectangular
-// canvas, which becomes the globe's surface. This replaces the old dot
-// shell: dots now mean "Alex ran here", so the land itself has to be
-// drawn rather than implied by a scatter of points.
-const buildEarthTexture = () => {
-  const canvas = document.createElement('canvas');
-  canvas.width = TEX_W;
-  canvas.height = TEX_H;
-  const ctx = canvas.getContext('2d');
+// ── Procedural surface detail ────────────────────────────────
+// No satellite imagery is fetched (the page ships no external assets),
+// so the variation is generated: value noise for mottling, latitude for
+// climate bands. A single flat fill reads as plastic; this gives the
+// land something to catch the light.
+// Math.imul throughout: the usual `n * n * 15731` formulation silently
+// overflows into float arithmetic in JS and loses the low bits, which
+// made this return a near-constant — the noise had a standard deviation
+// of zero and the whole planet came out one flat green.
+const lattice = (ix, iy, seed) => {
+  let n = Math.imul(ix | 0, 374761393) + Math.imul(iy | 0, 668265263) + Math.imul(seed | 0, 362437);
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+};
 
-  // Deep ocean blue rather than near-black: with a light source above,
-  // this reads as a planet instead of a dark UI sphere.
-  ctx.fillStyle = '#0b2137';
-  ctx.fillRect(0, 0, TEX_W, TEX_H);
+// Bilinear value noise, wrapping in x so the texture has no seam.
+const valueNoise = (fx, fy, cols, seed) => {
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const tx = fx - x0;
+  const ty = fy - y0;
+  const sx = tx * tx * (3 - 2 * tx);
+  const sy = ty * ty * (3 - 2 * ty);
+  const wrap = (v) => ((v % cols) + cols) % cols;
+  const a = lattice(wrap(x0), y0, seed);
+  const b = lattice(wrap(x0 + 1), y0, seed);
+  const c = lattice(wrap(x0), y0 + 1, seed);
+  const d = lattice(wrap(x0 + 1), y0 + 1, seed);
+  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+};
+
+const fbm = (u, v, baseCols, seed) => {
+  let sum = 0;
+  let amp = 0.5;
+  let cols = baseCols;
+  for (let o = 0; o < 4; o++) {
+    sum += valueNoise(u * cols, v * (cols / 2), cols, seed + o) * amp;
+    amp *= 0.5;
+    cols *= 2;
+  }
+  return sum;
+};
+
+const mix = (a, b, t) => a + (b - a) * t;
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+const buildEarthTexture = () => {
+  // Land is rasterised to a mask first so every pixel can ask "land or
+  // ocean?" while the colour is computed procedurally.
+  const mask = document.createElement('canvas');
+  mask.width = TEX_W;
+  mask.height = TEX_H;
+  const mctx = mask.getContext('2d', { willReadFrequently: true });
+  mctx.fillStyle = '#000';
+  mctx.fillRect(0, 0, TEX_W, TEX_H);
 
   // Longitudes are unwrapped so a ring crossing the antimeridian stays
   // continuous instead of snapping from +180 to -180. Left as-is, that
   // snap draws a straight horizontal line across the whole texture,
-  // which wraps onto the sphere as a false latitude circle — the
-  // mystery rings that were sitting over the Arctic.
+  // which wraps onto the sphere as a false latitude circle.
   const trace = (ring, offsetPx) => {
     let prev = null;
     let wrap = 0;
@@ -62,13 +105,13 @@ const buildEarthTexture = () => {
       prev = lng;
       const x = ((lng + wrap + 180) / 360) * TEX_W + offsetPx;
       const y = ((90 - lat) / 180) * TEX_H;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+      if (i === 0) mctx.moveTo(x, y);
+      else mctx.lineTo(x, y);
     });
-    ctx.closePath();
+    mctx.closePath();
   };
 
-  ctx.beginPath();
+  mctx.beginPath();
   // Drawn three times so shapes that run off one edge reappear on the
   // other rather than being clipped.
   [-TEX_W, 0, TEX_W].forEach((offsetPx) => {
@@ -80,16 +123,113 @@ const buildEarthTexture = () => {
       }
     });
   });
+  mctx.fillStyle = '#fff';
+  mctx.fill('evenodd');
+  const maskData = mctx.getImageData(0, 0, TEX_W, TEX_H).data;
 
-  ctx.fillStyle = '#2f4a38';
-  ctx.fill('evenodd');
-  ctx.strokeStyle = '#5c7f63';
-  ctx.lineWidth = 1.1;
-  ctx.stroke();
+  const canvas = document.createElement('canvas');
+  canvas.width = TEX_W;
+  canvas.height = TEX_H;
+  const ctx = canvas.getContext('2d');
+  const out = ctx.createImageData(TEX_W, TEX_H);
 
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
+  // Height data doubles as a bump map. Colour variation alone still
+  // reads as one flat green from a distance — it takes relief shading
+  // for the surface to look like terrain rather than paint.
+  const bump = document.createElement('canvas');
+  bump.width = TEX_W;
+  bump.height = TEX_H;
+  const bctx = bump.getContext('2d');
+  const bumpOut = bctx.createImageData(TEX_W, TEX_H);
+
+  for (let y = 0; y < TEX_H; y++) {
+    const v = y / TEX_H;
+    const lat = 90 - v * 180;
+    const absLat = Math.abs(lat);
+
+    for (let x = 0; x < TEX_W; x++) {
+      const u = x / TEX_W;
+      const i = (y * TEX_W + x) * 4;
+      const land = maskData[i] > 128;
+
+      let r;
+      let g;
+      let b;
+      let height;
+
+      if (land) {
+        // Two scales: broad regions, plus fine detail so it holds up
+        // when you zoom in.
+        const broad = fbm(u, v, 7, 1);
+        const fine = fbm(u, v, 28, 13);
+        const relief = clamp01(broad * 0.75 + fine * 0.45);
+        const arid = fbm(u, v, 4, 7);
+
+        // Vegetation vs rock, driven by the noise rather than latitude
+        // alone — this is what breaks up the single-green look.
+        let br = mix(0.10, 0.32, clamp01(relief * 1.5));
+        let bg = mix(0.28, 0.50, clamp01(relief * 1.2));
+        let bb = mix(0.12, 0.24, clamp01(relief * 1.3));
+
+        // Deserts through the arid latitudes, widened and strengthened.
+        const desert = clamp01(1 - Math.abs(absLat - 26) / 18) * clamp01(arid * 2.0 - 0.45);
+        br = mix(br, 0.60, desert);
+        bg = mix(bg, 0.50, desert);
+        bb = mix(bb, 0.30, desert);
+
+        const tropic = clamp01(1 - absLat / 16);
+        br = mix(br, 0.13, tropic * 0.75);
+        bg = mix(bg, 0.34, tropic * 0.75);
+        bb = mix(bb, 0.14, tropic * 0.75);
+
+        // Ice from ~68 degrees. Deliberately below the bloom threshold:
+        // at full white the caps bloomed into a spotlight at the pole.
+        const ice = clamp01((absLat - 68) / 12);
+        br = mix(br, 0.62, ice);
+        bg = mix(bg, 0.67, ice);
+        bb = mix(bb, 0.73, ice);
+
+        // Wide multiplier so highlands and lowlands read differently.
+        const shade = 0.7 + relief * 0.62;
+        r = br * shade;
+        g = bg * shade;
+        b = bb * shade;
+        height = relief;
+      } else {
+        const n = fbm(u, v, 6, 3);
+        const shade = 0.8 + n * 0.45;
+        r = 0.06 * shade;
+        g = 0.17 * shade;
+        b = 0.31 * shade;
+
+        const ice = clamp01((absLat - 74) / 11);
+        r = mix(r, 0.54, ice);
+        g = mix(g, 0.6, ice);
+        b = mix(b, 0.68, ice);
+        // Oceans stay flat so only continents catch relief.
+        height = 0.5;
+      }
+
+      out.data[i] = r * 255;
+      out.data[i + 1] = g * 255;
+      out.data[i + 2] = b * 255;
+      out.data[i + 3] = 255;
+
+      const h = height * 255;
+      bumpOut.data[i] = h;
+      bumpOut.data[i + 1] = h;
+      bumpOut.data[i + 2] = h;
+      bumpOut.data[i + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(out, 0, 0);
+  bctx.putImageData(bumpOut, 0, 0);
+
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  const bumpMap = new THREE.CanvasTexture(bump);
+  return { map, bumpMap };
 };
 
 // Density heatmap of every GPS point, baked into an equirectangular
@@ -259,6 +399,22 @@ const Globe = () => {
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
+
+    // Bloom, so the hot spots actually emit light instead of just being
+    // bright pixels. The threshold is high enough that only the heat
+    // layer and the atmospheric rim pass it — the land stays crisp.
+    const composer = new EffectComposer(renderer);
+    composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    composer.setSize(mount.clientWidth, mount.clientHeight);
+    composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(
+      new UnrealBloomPass(
+        new THREE.Vector2(mount.clientWidth, mount.clientHeight),
+        0.85, // strength
+        0.55, // radius
+        0.72 // threshold — keeps land and ice out of the bloom
+      )
+    );
     mount.appendChild(renderer.domElement);
 
     let atmosphere = null;
@@ -278,20 +434,22 @@ const Globe = () => {
     // the framing distance changes with viewport shape, so a fixed zoom
     // floor would put the camera inside the globe on some screens.
     const MIN_DIST = 1.026; // ~0.026 above a radius-1 surface, ~170km across
-    const MAX_DIST = 4.3;
 
-    // Centred and filling the frame: with the readout gone there is
-    // nothing to clear, so the globe is the whole composition. Narrow
-    // screens pull back because the sphere is height-limited there.
+    // Centred with room around it. Narrow screens pull back further
+    // because the globe is width-limited in portrait.
     const baseDistance = () => {
       const aspect = mount.clientWidth / mount.clientHeight;
-      return aspect > 1.1 ? 2.85 : 2.85 / Math.min(aspect, 1);
+      return aspect > 1.1 ? 3.8 : 3.8 / Math.min(aspect, 1);
     };
+    // Relative to the framing distance, not absolute: a fixed ceiling
+    // clamps portrait framing before it can pull back far enough and
+    // crops the globe against the viewport edges.
+    const maxDistance = () => baseDistance() * 1.45;
 
     let zoom = 1;
     const frameCamera = () => {
       const aspect = mount.clientWidth / mount.clientHeight;
-      const distance = THREE.MathUtils.clamp(baseDistance() * zoom, MIN_DIST, MAX_DIST);
+      const distance = THREE.MathUtils.clamp(baseDistance() * zoom, MIN_DIST, maxDistance());
       camera.position.set(0, 0, distance);
       world.position.set(0, 0, 0);
       camera.aspect = aspect;
@@ -318,29 +476,37 @@ const Globe = () => {
     frameCamera();
 
     // ── The earth ────────────────────────────────────────────
-    const earthTexture = buildEarthTexture();
-    earthTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    const { map: earthTexture, bumpMap: earthBump } = buildEarthTexture();
+    const maxAniso = renderer.capabilities.getMaxAnisotropy();
+    earthTexture.anisotropy = maxAniso;
+    earthBump.anisotropy = maxAniso;
     // Lit rather than flat-shaded: a real light source gives the globe a
     // terminator and a bright limb, which is most of what separates a
     // planet from a coloured ball.
     const core = new THREE.Mesh(
       new THREE.SphereGeometry(RADIUS, 128, 96),
-      new THREE.MeshStandardMaterial({ map: earthTexture, roughness: 1, metalness: 0 })
+      new THREE.MeshStandardMaterial({
+        map: earthTexture,
+        bumpMap: earthBump,
+        bumpScale: 1.6,
+        roughness: 0.95,
+        metalness: 0,
+      })
     );
     world.add(core);
 
-    const sun = new THREE.DirectionalLight(0xfff2e0, 2.6);
-    sun.position.set(-1.6, 1.1, 2.4);
+    const sun = new THREE.DirectionalLight(0xfff4e6, 3.1);
+    sun.position.set(-0.75, 0.85, 3.0);
     scene.add(sun);
     // Keeps the night side readable instead of crushing it to black.
-    scene.add(new THREE.AmbientLight(0x2a3f57, 1.1));
+    scene.add(new THREE.AmbientLight(0x486a8c, 2.4));
 
     // Vector coastlines on top of the texture: they stay crisp at any
     // zoom, where the raster starts to blur.
     const coastMat = new THREE.LineBasicMaterial({
-      color: 0x4d7a99,
+      color: 0x6f9fbd,
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.35,
     });
     // Rings are split wherever they cross the antimeridian. Joining a
     // point at lng 179 to one at lng -179 draws a chord the long way
@@ -369,15 +535,56 @@ const Globe = () => {
       else if (type === 'MultiPolygon') coordinates.forEach((poly) => poly.forEach(addRing));
     });
 
-    // Atmospheric rim. Blue and tight to the surface: the old orange
-    // shell read as a brown smudge around the planet rather than air.
+    // Atmospheric glow.
+    //
+    // A fresnel term is the usual trick, but on a shell it peaks at that
+    // shell's own silhouette and then stops dead — which is precisely a
+    // hard ring. Instead each fragment measures how far its view ray
+    // passes from the globe's centre (the impact parameter) and fades
+    // exponentially with distance outside the surface. The result is
+    // brightest where it touches the planet and dissolves outward, with
+    // no edge of its own.
+    //
+    // The shell is deliberately much larger than the falloff so the glow
+    // has already reached zero long before its geometry ends.
     atmosphere = new THREE.Mesh(
-      new THREE.SphereGeometry(RADIUS * 1.055, 64, 48),
-      new THREE.MeshBasicMaterial({
-        color: 0x5fa8e8,
-        transparent: true,
-        opacity: 0.13,
+      new THREE.SphereGeometry(RADIUS * 1.9, 64, 48),
+      new THREE.ShaderMaterial({
+        uniforms: {
+          uColor: { value: new THREE.Color(0x5aa9f5) },
+          uFalloff: { value: 6.5 },
+          uStrength: { value: 0.5 },
+          uRadius: { value: RADIUS },
+        },
+        vertexShader: `
+          varying vec3 vWorld;
+          void main() {
+            vec4 wp = modelMatrix * vec4(position, 1.0);
+            vWorld = wp.xyz;
+            gl_Position = projectionMatrix * viewMatrix * wp;
+          }
+        `,
+        fragmentShader: `
+          uniform vec3 uColor;
+          uniform float uFalloff;
+          uniform float uStrength;
+          uniform float uRadius;
+          varying vec3 vWorld;
+          void main() {
+            vec3 dir = normalize(vWorld - cameraPosition);
+            vec3 toCentre = -cameraPosition;
+            // Closest approach of this view ray to the globe's centre.
+            float along = dot(toCentre, dir);
+            float impact = length(toCentre - along * dir);
+            // How far outside the surface that ray passes.
+            float outside = max(impact - uRadius, 0.0);
+            float a = exp(-outside * uFalloff) * uStrength;
+            gl_FragColor = vec4(uColor * a, a);
+          }
+        `,
         side: THREE.BackSide,
+        blending: THREE.AdditiveBlending,
+        transparent: true,
         depthWrite: false,
       })
     );
@@ -405,7 +612,6 @@ const Globe = () => {
     let routeMesh = null;
     let disposed = false;
     let heatMesh = null;
-    let heatGlow = null;
 
     import('../stravaRoutes.json')
       .then(({ default: routeData }) => {
@@ -420,8 +626,8 @@ const Globe = () => {
         const verts = [];
         decoded.forEach((pts) => {
           for (let i = 0; i < pts.length - 1; i++) {
-            const a = latLngToVector3(pts[i][0], pts[i][1], RADIUS * 1.006);
-            const b = latLngToVector3(pts[i + 1][0], pts[i + 1][1], RADIUS * 1.006);
+            const a = latLngToVector3(pts[i][0], pts[i][1], RADIUS * 1.0028);
+            const b = latLngToVector3(pts[i + 1][0], pts[i + 1][1], RADIUS * 1.0028);
             verts.push(a.x, a.y, a.z, b.x, b.y, b.z);
           }
         });
@@ -451,29 +657,18 @@ const Globe = () => {
           blending: THREE.AdditiveBlending,
           depthWrite: false,
         });
-        heatMesh = new THREE.Mesh(new THREE.SphereGeometry(RADIUS * 1.003, 128, 96), heatMat);
+        // Hugs the surface. Anything meaningfully above it detaches at
+        // the limb and reads as blobs hovering off the horizon — which
+        // is what a second, larger copy of this texture used to do
+        // before UnrealBloomPass made it unnecessary.
+        heatMesh = new THREE.Mesh(new THREE.SphereGeometry(RADIUS * 1.0015, 128, 96), heatMat);
         world.add(heatMesh);
-
-        // A slightly larger, fainter copy fakes a bloom so the hot
-        // spots bleed light past the surface.
-        heatGlow = new THREE.Mesh(
-          new THREE.SphereGeometry(RADIUS * 1.03, 96, 64),
-          new THREE.MeshBasicMaterial({
-            map: heatTexture,
-            transparent: true,
-            opacity: 0,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-          })
-        );
-        world.add(heatGlow);
 
         // Clusters are no longer drawn — they're only click targets now.
         clusters = clusterRoutes(routeData.routes, precision);
 
         const d0 = camera.position.z;
         heatMesh.material.opacity = heatTargetFor(d0);
-        heatGlow.material.opacity = heatTargetFor(d0) * 0.4;
         routeMesh.material.opacity = routeTargetFor(d0);
 
         frameCamera();
@@ -585,7 +780,7 @@ const Globe = () => {
       const factor = THREE.MathUtils.clamp(1 + e.deltaY * 0.0012, 0.9, 1.12);
       const before = zoom;
       const base = baseDistance();
-      zoom = THREE.MathUtils.clamp(zoom * factor, MIN_DIST / base, MAX_DIST / base);
+      zoom = THREE.MathUtils.clamp(zoom * factor, MIN_DIST / base, 1.45);
       if (zoom === before) return;
 
       // Zooming in rotates whatever is under the cursor towards the
@@ -616,6 +811,7 @@ const Globe = () => {
       if (!mount.clientWidth) return;
       frameCamera();
       renderer.setSize(mount.clientWidth, mount.clientHeight);
+      composer.setSize(mount.clientWidth, mount.clientHeight);
     };
     window.addEventListener('resize', onResize);
 
@@ -625,7 +821,6 @@ const Globe = () => {
 
     const animate = () => {
       frame = requestAnimationFrame(animate);
-      const elapsed = clock.getElapsedTime();
       const delta = Math.min(clock.getDelta(), 0.1);
       const ease = (rate) => 1 - Math.exp(-delta * rate);
 
@@ -654,16 +849,12 @@ const Globe = () => {
       if (heatMesh) {
         const k = ease(3);
         heatMesh.material.opacity += (heatTarget - heatMesh.material.opacity) * k;
-        heatGlow.material.opacity += (heatTarget * 0.4 - heatGlow.material.opacity) * k;
-        // Slow breathing so the hot spots feel alive rather than printed.
-        const pulse = 1 + Math.sin(elapsed * 0.9) * 0.06;
-        heatGlow.scale.setScalar(pulse);
       }
       if (routeMesh) {
         routeMesh.material.opacity += (routeTarget - routeMesh.material.opacity) * ease(2.5);
       }
 
-      renderer.render(scene, camera);
+      composer.render();
     };
     animate();
 
@@ -678,6 +869,7 @@ const Globe = () => {
       renderer.domElement.removeEventListener('click', onClick);
       renderer.domElement.removeEventListener('pointermove', onHover);
       earthTexture.dispose();
+      earthBump.dispose();
       scene.traverse((obj) => {
         if (obj.geometry) obj.geometry.dispose();
         if (obj.material) {
@@ -685,6 +877,7 @@ const Globe = () => {
           else obj.material.dispose();
         }
       });
+      composer.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
     };
