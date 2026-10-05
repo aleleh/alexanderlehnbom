@@ -3,6 +3,13 @@
 
 name: Deploy to Firebase Hosting on PR
 'on': pull_request
+# The preview action comments the preview URL on the PR and posts a
+# check. The default token is read-only on newer repos, so it needs
+# these explicitly (current Firebase CLI templates include them).
+permissions:
+  checks: write
+  contents: read
+  pull-requests: write
 jobs:
   build_and_preview:
     if: '${{ github.event.pull_request.head.repo.full_name == github.repository }}'
