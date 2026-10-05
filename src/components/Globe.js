@@ -79,6 +79,62 @@ const fbm = (u, v, baseCols, seed) => {
 const mix = (a, b, t) => a + (b - a) * t;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
+// Surface colour and relief for one point, as [r, g, b, height] in
+// 0..1. Shared by the whole-globe texture and the close-up detail
+// patch so the two agree wherever they overlap. `extraFine` adds an
+// octave far smaller than the global texture can hold, which only the
+// patch has the resolution to show.
+const landSurface = (u, v, absLat, extraFine) => {
+  // Two scales: broad regions, plus fine detail so it holds up
+  // when you zoom in.
+  const broad = fbm(u, v, 7, 1);
+  const fine = fbm(u, v, 28, 13);
+  let relief = clamp01(broad * 0.75 + fine * 0.45);
+  if (extraFine) relief = clamp01(relief + (fbm(u, v, 900, 21) - 0.5) * 0.3);
+  const arid = fbm(u, v, 4, 7);
+
+  // Vegetation vs rock, driven by the noise rather than latitude
+  // alone — this is what breaks up the single-green look.
+  let br = mix(0.10, 0.32, clamp01(relief * 1.5));
+  let bg = mix(0.28, 0.50, clamp01(relief * 1.2));
+  let bb = mix(0.12, 0.24, clamp01(relief * 1.3));
+
+  // Deserts through the arid latitudes, widened and strengthened.
+  const desert = clamp01(1 - Math.abs(absLat - 26) / 18) * clamp01(arid * 2.0 - 0.45);
+  br = mix(br, 0.60, desert);
+  bg = mix(bg, 0.50, desert);
+  bb = mix(bb, 0.30, desert);
+
+  const tropic = clamp01(1 - absLat / 16);
+  br = mix(br, 0.13, tropic * 0.75);
+  bg = mix(bg, 0.34, tropic * 0.75);
+  bb = mix(bb, 0.14, tropic * 0.75);
+
+  // Ice from ~68 degrees. Deliberately below the bloom threshold:
+  // at full white the caps bloomed into a spotlight at the pole.
+  const ice = clamp01((absLat - 68) / 12);
+  br = mix(br, 0.62, ice);
+  bg = mix(bg, 0.67, ice);
+  bb = mix(bb, 0.73, ice);
+
+  // Wide multiplier so highlands and lowlands read differently.
+  const shade = 0.7 + relief * 0.62;
+  return [br * shade, bg * shade, bb * shade, relief];
+};
+
+const oceanSurface = (u, v, absLat) => {
+  const n = fbm(u, v, 6, 3);
+  const shade = 0.8 + n * 0.45;
+  const ice = clamp01((absLat - 74) / 11);
+  // Oceans stay flat so only continents catch relief.
+  return [
+    mix(0.06 * shade, 0.54, ice),
+    mix(0.17 * shade, 0.6, ice),
+    mix(0.31 * shade, 0.68, ice),
+    0.5,
+  ];
+};
+
 const buildEarthTexture = () => {
   // Land is rasterised to a mask first so every pixel can ask "land or
   // ocean?" while the colour is computed procedurally.
@@ -152,63 +208,7 @@ const buildEarthTexture = () => {
       const i = (y * TEX_W + x) * 4;
       const land = maskData[i] > 128;
 
-      let r;
-      let g;
-      let b;
-      let height;
-
-      if (land) {
-        // Two scales: broad regions, plus fine detail so it holds up
-        // when you zoom in.
-        const broad = fbm(u, v, 7, 1);
-        const fine = fbm(u, v, 28, 13);
-        const relief = clamp01(broad * 0.75 + fine * 0.45);
-        const arid = fbm(u, v, 4, 7);
-
-        // Vegetation vs rock, driven by the noise rather than latitude
-        // alone — this is what breaks up the single-green look.
-        let br = mix(0.10, 0.32, clamp01(relief * 1.5));
-        let bg = mix(0.28, 0.50, clamp01(relief * 1.2));
-        let bb = mix(0.12, 0.24, clamp01(relief * 1.3));
-
-        // Deserts through the arid latitudes, widened and strengthened.
-        const desert = clamp01(1 - Math.abs(absLat - 26) / 18) * clamp01(arid * 2.0 - 0.45);
-        br = mix(br, 0.60, desert);
-        bg = mix(bg, 0.50, desert);
-        bb = mix(bb, 0.30, desert);
-
-        const tropic = clamp01(1 - absLat / 16);
-        br = mix(br, 0.13, tropic * 0.75);
-        bg = mix(bg, 0.34, tropic * 0.75);
-        bb = mix(bb, 0.14, tropic * 0.75);
-
-        // Ice from ~68 degrees. Deliberately below the bloom threshold:
-        // at full white the caps bloomed into a spotlight at the pole.
-        const ice = clamp01((absLat - 68) / 12);
-        br = mix(br, 0.62, ice);
-        bg = mix(bg, 0.67, ice);
-        bb = mix(bb, 0.73, ice);
-
-        // Wide multiplier so highlands and lowlands read differently.
-        const shade = 0.7 + relief * 0.62;
-        r = br * shade;
-        g = bg * shade;
-        b = bb * shade;
-        height = relief;
-      } else {
-        const n = fbm(u, v, 6, 3);
-        const shade = 0.8 + n * 0.45;
-        r = 0.06 * shade;
-        g = 0.17 * shade;
-        b = 0.31 * shade;
-
-        const ice = clamp01((absLat - 74) / 11);
-        r = mix(r, 0.54, ice);
-        g = mix(g, 0.6, ice);
-        b = mix(b, 0.68, ice);
-        // Oceans stay flat so only continents catch relief.
-        height = 0.5;
-      }
+      const [r, g, b, height] = land ? landSurface(u, v, absLat, false) : oceanSurface(u, v, absLat);
 
       out.data[i] = r * 255;
       out.data[i + 1] = g * 255;
@@ -231,6 +231,196 @@ const buildEarthTexture = () => {
   map.colorSpace = THREE.SRGBColorSpace;
   const bumpMap = new THREE.CanvasTexture(bump);
   return { map, bumpMap };
+};
+
+// ── Close-up detail ──────────────────────────────────────────
+// The global texture spends 2048px on 360 degrees, about 20km per
+// texel, and land-110m's coastline is coarser still — zoomed in on a
+// city that is a few blurry pixels stretched across the screen. So up
+// close a second, regional texture is drawn over the globe: the same
+// colours, but rasterised just for the area in view from Natural
+// Earth's 10m coastline, which is loaded only once someone zooms in.
+const DETAIL_PX = 2048;
+// Colour varies slowly, so it is computed on a small grid and scaled
+// up; only the land/sea edge needs the full resolution.
+const DETAIL_COLOUR_PX = 256;
+// Fraction of each edge that fades out, so the patch blends into the
+// globe instead of ending on a visible seam.
+const DETAIL_FADE = 0.12;
+
+// Each ring is unwrapped across the antimeridian once, with its
+// bounding box, so a patch only has to trace the rings it touches.
+const prepareDetailRings = (topo) => {
+  const rings = [];
+  feature(topo, topo.objects.land).features.forEach((f) => {
+    const { type, coordinates } = f.geometry;
+    const polys = type === 'Polygon' ? [coordinates] : type === 'MultiPolygon' ? coordinates : [];
+    polys.forEach((poly) =>
+      poly.forEach((ring) => {
+        const pts = new Float64Array(ring.length * 2);
+        let wrap = 0;
+        let minLng = Infinity;
+        let maxLng = -Infinity;
+        let minLat = Infinity;
+        let maxLat = -Infinity;
+        ring.forEach(([lng, lat], i) => {
+          if (i > 0) {
+            const d = lng - ring[i - 1][0];
+            if (d > 180) wrap -= 360;
+            else if (d < -180) wrap += 360;
+          }
+          const x = lng + wrap;
+          pts[i * 2] = x;
+          pts[i * 2 + 1] = lat;
+          if (x < minLng) minLng = x;
+          if (x > maxLng) maxLng = x;
+          if (lat < minLat) minLat = lat;
+          if (lat > maxLat) maxLat = lat;
+        });
+        rings.push({ pts, minLng, maxLng, minLat, maxLat });
+      })
+    );
+  });
+  return rings;
+};
+
+// Builds the texture, bump map and sphere-patch geometry for a region
+// centred on (lat, lng), `latSpan` degrees tall and square on the
+// ground.
+const buildDetailPatch = (rings, lat, lng, latSpan, maxPx) => {
+  const px = Math.min(DETAIL_PX, maxPx);
+  const lngSpan = Math.min(latSpan / Math.max(Math.cos((lat * Math.PI) / 180), 0.05), 360);
+  // Shifted rather than clipped at the poles, so the patch keeps its
+  // size and the texture its aspect.
+  const latMax = Math.min(lat + latSpan / 2, 90);
+  const latMin = Math.max(latMax - latSpan, -90);
+  const top = latMin + latSpan;
+  const lngMin = lng - lngSpan / 2;
+
+  // Land mask: white land on transparent, antialiased by the canvas.
+  const mask = document.createElement('canvas');
+  mask.width = px;
+  mask.height = px;
+  const mctx = mask.getContext('2d');
+  mctx.beginPath();
+  rings.forEach((r) => {
+    if (r.maxLat < latMin || r.minLat > top) return;
+    [-360, 0, 360].forEach((shift) => {
+      if (r.maxLng + shift < lngMin || r.minLng + shift > lngMin + lngSpan) return;
+      const { pts } = r;
+      for (let i = 0; i < pts.length; i += 2) {
+        const x = ((pts[i] + shift - lngMin) / lngSpan) * px;
+        const y = ((top - pts[i + 1]) / latSpan) * px;
+        if (i === 0) mctx.moveTo(x, y);
+        else mctx.lineTo(x, y);
+      }
+      mctx.closePath();
+    });
+  });
+  mctx.fillStyle = '#fff';
+  mctx.fill('evenodd');
+
+  // Land and ocean colour (and land height) on the small grid.
+  const n = DETAIL_COLOUR_PX;
+  const grid = (fill) => {
+    const c = document.createElement('canvas');
+    c.width = n;
+    c.height = n;
+    const cctx = c.getContext('2d');
+    const img = cctx.createImageData(n, n);
+    for (let y = 0; y < n; y++) {
+      const pLat = top - ((y + 0.5) / n) * latSpan;
+      const v = (90 - pLat) / 180;
+      const absLat = Math.abs(pLat);
+      for (let x = 0; x < n; x++) {
+        const pLng = lngMin + ((x + 0.5) / n) * lngSpan;
+        const u = ((((pLng + 180) % 360) + 360) % 360) / 360;
+        fill(img.data, (y * n + x) * 4, u, v, absLat);
+      }
+    }
+    cctx.putImageData(img, 0, 0);
+    return c;
+  };
+  const put = (d, i, r, g, b) => {
+    d[i] = r * 255;
+    d[i + 1] = g * 255;
+    d[i + 2] = b * 255;
+    d[i + 3] = 255;
+  };
+  const landHeights = new Float32Array(n * n);
+  const landColour = grid((d, i, u, v, absLat) => {
+    const [r, g, b, h] = landSurface(u, v, absLat, true);
+    landHeights[i / 4] = h;
+    put(d, i, r, g, b);
+  });
+  const landBump = grid((d, i) => {
+    const h = landHeights[i / 4];
+    put(d, i, h, h, h);
+  });
+  const oceanColour = grid((d, i, u, v, absLat) => {
+    const [r, g, b] = oceanSurface(u, v, absLat);
+    put(d, i, r, g, b);
+  });
+
+  // Upscales `under`, then lays `land` over it clipped to the mask.
+  const compose = (under, land) => {
+    const c = document.createElement('canvas');
+    c.width = px;
+    c.height = px;
+    const cctx = c.getContext('2d');
+    cctx.imageSmoothingQuality = 'high';
+    if (typeof under === 'string') {
+      cctx.fillStyle = under;
+      cctx.fillRect(0, 0, px, px);
+    } else {
+      cctx.drawImage(under, 0, 0, px, px);
+    }
+    const clip = document.createElement('canvas');
+    clip.width = px;
+    clip.height = px;
+    const clipCtx = clip.getContext('2d');
+    clipCtx.imageSmoothingQuality = 'high';
+    clipCtx.drawImage(land, 0, 0, px, px);
+    clipCtx.globalCompositeOperation = 'destination-in';
+    clipCtx.drawImage(mask, 0, 0);
+    cctx.drawImage(clip, 0, 0);
+    return c;
+  };
+
+  const colour = compose(oceanColour, landColour);
+  // Edge fade, in alpha: one gradient across, one down.
+  const cctx = colour.getContext('2d');
+  cctx.globalCompositeOperation = 'destination-in';
+  [
+    cctx.createLinearGradient(0, 0, px, 0),
+    cctx.createLinearGradient(0, 0, 0, px),
+  ].forEach((g) => {
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(DETAIL_FADE, 'rgba(0,0,0,1)');
+    g.addColorStop(1 - DETAIL_FADE, 'rgba(0,0,0,1)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    cctx.fillStyle = g;
+    cctx.fillRect(0, 0, px, px);
+  });
+
+  const map = new THREE.CanvasTexture(colour);
+  map.colorSpace = THREE.SRGBColorSpace;
+  const bumpMap = new THREE.CanvasTexture(compose('rgb(128,128,128)', landBump));
+
+  // SphereGeometry's phi/theta are exactly latLngToVector3's azimuth
+  // (lng + 180) and polar angle (90 - lat), so the patch lands on the
+  // same spot the global texture puts that region.
+  const toRad = Math.PI / 180;
+  const geometry = new THREE.SphereGeometry(
+    RADIUS * 1.0006,
+    96,
+    96,
+    (lngMin + 180) * toRad,
+    lngSpan * toRad,
+    (90 - top) * toRad,
+    latSpan * toRad
+  );
+  return { map, bumpMap, geometry };
 };
 
 // Density heatmap of every GPS point, baked into an equirectangular
@@ -569,6 +759,9 @@ const Globe = ({ onHoverPlace }) => {
     // the framing distance changes with viewport shape, so a fixed zoom
     // floor would put the camera inside the globe on some screens.
     const MIN_DIST = 1.026; // ~0.026 above a radius-1 surface, ~170km across
+    // Below this the close-up detail patch takes over from the global
+    // texture, and the atmosphere is hidden.
+    const DETAIL_DIST = 1.35;
 
     // Centred with room around it. Narrow screens pull back further
     // because the globe is width-limited in portrait.
@@ -597,7 +790,7 @@ const Globe = ({ onHoverPlace }) => {
       camera.aspect = aspect;
       camera.updateProjectionMatrix();
 
-      const close = distance < 1.35;
+      const close = distance < DETAIL_DIST;
       if (atmosphere) atmosphere.visible = !close;
     };
 
@@ -676,6 +869,26 @@ const Globe = ({ onHoverPlace }) => {
       if (type === 'Polygon') coordinates.forEach(addRing);
       else if (type === 'MultiPolygon') coordinates.forEach((poly) => poly.forEach(addRing));
     });
+
+    // ── Close-up detail patch ────────────────────────────────
+    // Built lazily: nothing is loaded or drawn until the camera is
+    // closer than DETAIL_DIST, where the global texture starts to blur.
+    const detailMat = new THREE.MeshStandardMaterial({
+      bumpScale: 1.6,
+      roughness: 0.95,
+      metalness: 0,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    let detailMesh = null;
+    let detail = null; // { dir, latSpan } the current patch was built for
+    let detailRings = null;
+    let detailLoading = false;
+    let lastInput = 0;
 
     // Atmospheric glow.
     //
@@ -846,10 +1059,18 @@ const Globe = ({ onHoverPlace }) => {
       dragMoved += Math.abs(dx) + Math.abs(dy);
       lastX = e.clientX;
       lastY = e.clientY;
-      velocity = dx * 0.005;
+      // Scaled by altitude so the ground tracks the pointer: at full
+      // speed, a short drag on a city flung the globe halfway round.
+      const k = THREE.MathUtils.clamp(
+        (camera.position.z - RADIUS) / (baseDistance() - RADIUS),
+        0.004,
+        1
+      );
+      velocity = dx * 0.005 * k;
       fly = null;
+      lastInput = performance.now();
       spinBy(velocity, AXIS_Y);
-      spinBy(dy * 0.004, AXIS_X);
+      spinBy(dy * 0.004 * k, AXIS_X);
     };
     const onPointerUp = () => {
       dragging = false;
@@ -916,13 +1137,21 @@ const Globe = ({ onHoverPlace }) => {
       };
     };
 
+    // The place whose label is up. Re-reported every frame it moves so
+    // the label stays pinned to the place while the globe turns, rather
+    // than being left floating where it was first shown.
+    let labelled = null;
+    let labelAt = null;
     const report = (c) => {
+      labelled = c;
       if (!hoverCbRef.current) return;
       if (!c) {
+        labelAt = null;
         hoverCbRef.current(null);
         return;
       }
       const { x, y } = screenPositionOf(c);
+      labelAt = { x, y };
       hoverCbRef.current({
         name: c.name,
         runs: c.runs,
@@ -957,6 +1186,7 @@ const Globe = ({ onHoverPlace }) => {
     const onWheel = (e) => {
       e.preventDefault();
       fly = null;
+      lastInput = performance.now();
       const factor = THREE.MathUtils.clamp(1 + e.deltaY * 0.0012, 0.9, 1.12);
       const before = zoom;
       const base = baseDistance();
@@ -1001,6 +1231,76 @@ const Globe = ({ onHoverPlace }) => {
     const resizeObserver = new ResizeObserver(onResize);
     resizeObserver.observe(mount);
 
+    // What the camera is looking at, or mid-flight will be, so a click
+    // on a place starts building its close-up before the camera lands.
+    const viewTarget = () => {
+      const quat = fly ? fly.quat : world.quaternion;
+      const dist = fly
+        ? THREE.MathUtils.clamp(baseDistance() * fly.zoom, MIN_DIST, maxDistance())
+        : camera.position.z;
+      return { dir: new THREE.Vector3(0, 0, 1).applyQuaternion(quat.clone().invert()), dist };
+    };
+
+    // Patch height in degrees: the visible ground across the wider
+    // screen axis, plus room for the faded edges and some panning.
+    const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const detailSpanFor = (dist) => {
+      const aspect = mount.clientWidth / mount.clientHeight || 1;
+      const visible = 2 * tanHalfFov * (dist - RADIUS) * Math.max(aspect, 1);
+      return THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(visible) * 1.8, 0.5, 60);
+    };
+
+    const updateDetail = (now) => {
+      const { dir, dist } = viewTarget();
+      if (dist >= DETAIL_DIST) return;
+      if (!detailRings) {
+        if (!detailLoading) {
+          detailLoading = true;
+          import('world-atlas/land-10m.json')
+            .then(({ default: topo }) => {
+              if (!disposed) detailRings = prepareDetailRings(topo);
+            })
+            .catch((err) => console.error('Failed to load coastline detail', err));
+        }
+        return;
+      }
+      // Rebuilding mid-gesture would stutter, so wait for the view to
+      // settle — except in flight, where the destination is known.
+      if (!fly && now - lastInput < 150) return;
+
+      const latSpan = detailSpanFor(dist);
+      if (detail) {
+        const drift = THREE.MathUtils.radToDeg(dir.angleTo(detail.dir));
+        const ratio = latSpan / detail.latSpan;
+        if (drift < detail.latSpan * 0.2 && ratio > 0.6 && ratio < 1.6) return;
+      }
+
+      const [lat, lng] = vector3ToLatLng(dir);
+      const built = buildDetailPatch(
+        detailRings,
+        lat,
+        lng,
+        latSpan,
+        renderer.capabilities.maxTextureSize
+      );
+      if (detailMesh) {
+        detailMesh.geometry.dispose();
+        detailMat.map.dispose();
+        detailMat.bumpMap.dispose();
+        detailMesh.geometry = built.geometry;
+      } else {
+        detailMesh = new THREE.Mesh(built.geometry, detailMat);
+        // Before the other overlays, so coastlines and routes draw on
+        // top of it rather than under it.
+        detailMesh.renderOrder = -1;
+        world.add(detailMesh);
+        detailMat.needsUpdate = true;
+      }
+      detailMat.map = built.map;
+      detailMat.bumpMap = built.bumpMap;
+      detail = { dir, latSpan };
+    };
+
     // ── Loop ─────────────────────────────────────────────────
     let frame;
     const clock = new THREE.Clock();
@@ -1029,6 +1329,16 @@ const Globe = ({ onHoverPlace }) => {
       }
 
       const dist = camera.position.z;
+
+      updateDetail(performance.now());
+      // The patch fades in over the blurry texture, and the 110m
+      // coastlines fade out under it: they are chords hundreds of km
+      // long at this scale and no longer match the shore.
+      const detailTarget = detail && dist < DETAIL_DIST ? 1 : 0;
+      detailMat.opacity += (detailTarget - detailMat.opacity) * ease(4);
+      if (detailMesh) detailMesh.visible = detailMat.opacity > 0.01;
+      coastMat.opacity = 0.35 * (1 - detailMat.opacity);
+
       const heatTarget = heatTargetFor(dist);
       const routeTarget = routeTargetFor(dist);
 
@@ -1038,6 +1348,18 @@ const Globe = ({ onHoverPlace }) => {
       }
       if (routeMesh) {
         routeMesh.material.opacity += (routeTarget - routeMesh.material.opacity) * ease(2.5);
+      }
+
+      if (labelled) {
+        const facing = latLngToVector3(labelled.lat, labelled.lng, 1)
+          .applyQuaternion(world.quaternion)
+          .dot(camera.position.clone().normalize());
+        // Gone over the horizon, which is much nearer when zoomed in.
+        if (facing < RADIUS / camera.position.z) report(null);
+        else {
+          const { x, y } = screenPositionOf(labelled);
+          if (!labelAt || Math.abs(x - labelAt.x) + Math.abs(y - labelAt.y) > 0.5) report(labelled);
+        }
       }
 
       composer.render();
@@ -1058,6 +1380,8 @@ const Globe = ({ onHoverPlace }) => {
       renderer.domElement.removeEventListener('pointerleave', onLeave);
       earthTexture.dispose();
       earthBump.dispose();
+      if (detailMat.map) detailMat.map.dispose();
+      if (detailMat.bumpMap) detailMat.bumpMap.dispose();
       scene.traverse((obj) => {
         if (obj.geometry) obj.geometry.dispose();
         if (obj.material) {
