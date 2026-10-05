@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { HiOutlineGlobeAlt } from 'react-icons/hi';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -708,6 +709,8 @@ const Globe = ({ onHoverPlace }) => {
   useEffect(() => {
     hoverCbRef.current = onHoverPlace;
   }, [onHoverPlace]);
+  const zoomOutRef = useRef(null);
+  const [zoomedIn, setZoomedIn] = useState(false);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -885,6 +888,7 @@ const Globe = ({ onHoverPlace }) => {
       polygonOffsetUnits: -1,
     });
     let detailMesh = null;
+    let zoomedIn = false;
     let detail = null; // { dir, latSpan } the current patch was built for
     let detailRings = null;
     let detailLoading = false;
@@ -1045,7 +1049,29 @@ const Globe = ({ onHoverPlace }) => {
     let velocity = 0;
     let fly = null;
 
+    // Every finger or mouse button currently down, so two touches can
+    // be read as a pinch rather than as two competing drags.
+    const pointers = new Map();
+    let pinchGap = 0;
+    const pinchState = () => {
+      const [a, b] = [...pointers.values()];
+      return {
+        gap: Math.hypot(a.x - b.x, a.y - b.y),
+        clientX: (a.x + b.x) / 2,
+        clientY: (a.y + b.y) / 2,
+      };
+    };
+
     const onPointerDown = (e) => {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) {
+        // A second finger turns the drag into a pinch.
+        dragging = false;
+        dragMoved = Infinity; // and never a click
+        pinchGap = pinchState().gap;
+        return;
+      }
+      if (pointers.size > 2) return;
       dragging = true;
       dragMoved = 0;
       lastX = e.clientX;
@@ -1053,6 +1079,13 @@ const Globe = ({ onHoverPlace }) => {
       renderer.domElement.style.cursor = 'grabbing';
     };
     const onPointerMove = (e) => {
+      if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) {
+        const pinch = pinchState();
+        if (pinchGap > 0 && pinch.gap > 0) zoomBy(pinchGap / pinch.gap, pinch);
+        pinchGap = pinch.gap;
+        return;
+      }
       if (!dragging) return;
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
@@ -1072,7 +1105,8 @@ const Globe = ({ onHoverPlace }) => {
       spinBy(velocity, AXIS_Y);
       spinBy(dy * 0.004 * k, AXIS_X);
     };
-    const onPointerUp = () => {
+    const onPointerUp = (e) => {
+      pointers.delete(e.pointerId);
       dragging = false;
       renderer.domElement.style.cursor = 'grab';
     };
@@ -1183,11 +1217,11 @@ const Globe = ({ onHoverPlace }) => {
 
     const onLeave = () => report(null);
 
-    const onWheel = (e) => {
-      e.preventDefault();
+    // Shared by the wheel and pinch: `factor` < 1 closes in, towards
+    // the point under `at` (anything with clientX/clientY).
+    const zoomBy = (factor, at) => {
       fly = null;
       lastInput = performance.now();
-      const factor = THREE.MathUtils.clamp(1 + e.deltaY * 0.0012, 0.9, 1.12);
       const before = zoom;
       const base = baseDistance();
       zoom = THREE.MathUtils.clamp(zoom * factor, MIN_DIST / base, 1.45);
@@ -1197,7 +1231,7 @@ const Globe = ({ onHoverPlace }) => {
       // centre of view, so you close in on the place you're pointing at
       // instead of always diving at the middle of the globe.
       if (zoom < before) {
-        const hit = surfaceUnderPointer(e);
+        const hit = surfaceUnderPointer(at);
         if (hit) {
           const centre = camera.position.clone().sub(world.position).normalize();
           const delta = new THREE.Quaternion().setFromUnitVectors(hit, centre);
@@ -1209,6 +1243,18 @@ const Globe = ({ onHoverPlace }) => {
       frameCamera();
     };
 
+    const onWheel = (e) => {
+      e.preventDefault();
+      zoomBy(THREE.MathUtils.clamp(1 + e.deltaY * 0.0012, 0.9, 1.12), e);
+    };
+
+    // Back out to the whole globe, keeping whatever is facing the
+    // camera — the only way out on touch screens without a pinch.
+    zoomOutRef.current = () => {
+      report(null);
+      fly = { quat: world.quaternion.clone(), zoom: 1 };
+    };
+
     renderer.domElement.style.cursor = 'grab';
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
@@ -1217,6 +1263,7 @@ const Globe = ({ onHoverPlace }) => {
     renderer.domElement.addEventListener('pointerleave', onLeave);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
 
     const onResize = () => {
       if (!mount.clientWidth || !mount.clientHeight) return;
@@ -1330,6 +1377,12 @@ const Globe = ({ onHoverPlace }) => {
 
       const dist = camera.position.z;
 
+      const isZoomedIn = dist < baseDistance() * 0.8;
+      if (isZoomedIn !== zoomedIn) {
+        zoomedIn = isZoomedIn;
+        setZoomedIn(isZoomedIn);
+      }
+
       updateDetail(performance.now());
       // The patch fades in over the blurry texture, and the 110m
       // coastlines fade out under it: they are chords hundreds of km
@@ -1373,6 +1426,7 @@ const Globe = ({ onHoverPlace }) => {
       resizeObserver.disconnect();
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('wheel', onWheel);
       renderer.domElement.removeEventListener('click', onClick);
@@ -1395,7 +1449,21 @@ const Globe = ({ onHoverPlace }) => {
     };
   }, []);
 
-  return <div className="globe-canvas" ref={mountRef} />;
+  return (
+    <>
+      <div className="globe-canvas" ref={mountRef} />
+      {zoomedIn && (
+        <button
+          type="button"
+          className="ghost-button zoom-out"
+          onClick={() => zoomOutRef.current && zoomOutRef.current()}
+        >
+          <HiOutlineGlobeAlt />
+          <span>zoom out</span>
+        </button>
+      )}
+    </>
+  );
 };
 
 export default Globe;

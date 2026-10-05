@@ -48,6 +48,18 @@ body {
   position: absolute;
   inset: 0;
   z-index: 1;
+  /* The globe handles drag and pinch itself; without this the browser
+     scrolls or zooms the page instead. */
+  touch-action: none;
+}
+
+.zoom-out {
+  position: absolute;
+  z-index: 3;
+  right: clamp(1.25rem, 4vw, 3rem);
+  bottom: 2rem;
+  background: rgba(5, 7, 12, 0.6);
+  backdrop-filter: blur(6px);
 }
 
 /* The overlay must not eat the drag gesture — only its actual
@@ -161,5 +173,16 @@ body {
 
   .ghost-button {
     padding: 0.4rem 0.6rem;
+  }
+
+  /* An icon alone wouldn't say what this does. */
+  .zoom-out span {
+    display: inline;
+  }
+
+  .zoom-out {
+    right: 1.25rem;
+    bottom: 1.25rem;
+    padding: 0.5rem 0.9rem;
   }
 }
