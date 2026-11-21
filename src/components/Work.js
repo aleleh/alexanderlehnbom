@@ -4,6 +4,8 @@ import { FaGithub } from 'react-icons/fa';
 import { HiOutlineMail, HiArrowRight, HiOutlineDocumentText } from 'react-icons/hi';
 import {
   ABOUT,
+  BUILDS,
+  EDUCATION,
   EMAIL,
   EXPERIENCE,
   FEATURED,
@@ -12,6 +14,7 @@ import {
   PROJECTS,
   RESUME_URL,
   SKILLS,
+  STATS,
 } from '../profile';
 
 const MAILTO = `mailto:${EMAIL}?subject=${encodeURIComponent('hello from alexanderlehnbom.com')}`;
@@ -27,6 +30,17 @@ const Chips = ({ items }) => (
 // Everything below the globe: the part a recruiter actually reads.
 const Work = () => (
   <main id="work" className="work">
+    {STATS.length > 0 && (
+      <section className="stats" aria-label="Highlights">
+        {STATS.map((st) => (
+          <div key={st.value} className="stat">
+            <span className="stat-value">{st.value}</span>
+            <span className="stat-label">{st.label}</span>
+          </div>
+        ))}
+      </section>
+    )}
+
     <section className="about" aria-labelledby="about-title">
       <img className="about-photo" src={ABOUT.photo} alt={ABOUT.photoAlt} loading="lazy" />
       <div>
@@ -43,8 +57,23 @@ const Work = () => (
       </div>
     </section>
 
+    {BUILDS.length > 0 && (
+      <section aria-labelledby="builds-title">
+        <h2 id="builds-title" className="eyebrow">what I’ve built at Shakepay</h2>
+        <div className="builds">
+          {BUILDS.map((b) => (
+            <article key={b.title} className="build">
+              <h3>{b.title}</h3>
+              <p>{b.detail}</p>
+              <Chips items={b.stack} />
+            </article>
+          ))}
+        </div>
+      </section>
+    )}
+
     <section className="featured" aria-labelledby="featured-title">
-      <h2 className="eyebrow">featured build</h2>
+      <h2 className="eyebrow">side project</h2>
       <h3 id="featured-title">{FEATURED.title}</h3>
       <p className="featured-summary">{FEATURED.summary}</p>
       <ul className="featured-points">
@@ -65,23 +94,6 @@ const Work = () => (
       </div>
     </section>
 
-    {PROJECTS.length > 0 && (
-      <section aria-labelledby="projects-title">
-        <h2 id="projects-title" className="eyebrow">other projects</h2>
-        <div className="projects">
-          {PROJECTS.map((p) => (
-            <a key={p.title} className="project" href={p.href} target="_blank" rel="noopener noreferrer">
-              <span className="project-title">
-                {p.title} <HiArrowRight />
-              </span>
-              <span className="project-desc">{p.description}</span>
-              <Chips items={p.stack} />
-            </a>
-          ))}
-        </div>
-      </section>
-    )}
-
     <div className="two-col">
       {EXPERIENCE.length > 0 && (
         <section aria-labelledby="exp-title">
@@ -91,7 +103,11 @@ const Work = () => (
               <li key={`${e.role}-${e.org}-${e.when}`}>
                 <div className="timeline-head">
                   <span className="timeline-role">
-                    {e.role} <span className="timeline-org">· {e.org}</span>
+                    {e.role}
+                    <span className="timeline-org">
+                      {e.org}
+                      {e.where && <> · {e.where}</>}
+                    </span>
                   </span>
                   <span className="timeline-when">{e.when}</span>
                 </div>
@@ -111,9 +127,39 @@ const Work = () => (
               <Chips items={g.items} />
             </div>
           ))}
+          {EDUCATION.length > 0 && (
+            <div className="skill-group education">
+              <h3>Education</h3>
+              <ul>
+                {EDUCATION.map((ed) => (
+                  <li key={ed.what + ed.where}>
+                    {ed.what} <span>· {ed.where}, {ed.when}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
       )}
     </div>
+
+    {PROJECTS.length > 0 && (
+      <section aria-labelledby="projects-title">
+        <h2 id="projects-title" className="eyebrow">earlier web projects</h2>
+        <div className="projects">
+          {PROJECTS.map((p) => (
+            <a key={p.title} className="project" href={p.href} target="_blank" rel="noopener noreferrer">
+              <span className="project-title">
+                {p.title} <HiArrowRight />
+              </span>
+              <span className="project-desc">{p.description}</span>
+              <Chips items={p.stack} />
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
 
     <section className="cta" aria-labelledby="cta-title">
       <h2 id="cta-title">Let’s work together.</h2>
