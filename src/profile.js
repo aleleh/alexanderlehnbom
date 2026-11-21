@@ -14,7 +14,7 @@ export const REPO = 'https://github.com/aleleh/alexanderlehnbom';
 export const RESUME_URL = '/resume.pdf';
 
 export const HERO = {
-  role: 'Support & automation manager',
+  role: 'Developer & support manager',
   pitch:
     'I build the automation behind customer support at Shakepay: an AI agent wired into live systems, n8n workflows, automated QA and the internal tools ops runs on. The globe behind this is every run I’ve logged.',
 };
