@@ -636,6 +636,20 @@ const nameFor = (lat, lng) => {
   return bestDist < 0.8 ? best : null;
 };
 
+// Country for a place name, read off its suffix: Canadian provinces
+// and US states are written as two-letter codes, everything else ends
+// in the country itself.
+const CANADA = /, (AB|BC|SK|MB|ON|QC|NS|NB|PE|NL|YT|NT|NU)$/;
+const USA = /, [A-Z]{2}$/;
+const countryOf = (name) => {
+  if (!name) return null;
+  if (CANADA.test(name) || name === 'Nova Scotia') return 'Canada';
+  if (USA.test(name)) return 'United States';
+  if (name === 'Panamá') return 'Panama';
+  const parts = name.split(', ');
+  return parts[parts.length - 1];
+};
+
 // Groups the routes into the places they were run, and totals runs and
 // distance for each so a hovered hot spot can say what it actually is.
 // Distance comes from Strava's own per-activity figure; measuring the
@@ -698,10 +712,13 @@ const clusterRoutes = (decoded, distances) => {
 
   return clusters
     .filter((c) => c.runs > 0)
-    .map((c) => ({ ...c, name: nameFor(c.lat, c.lng) }));
+    .map((c) => {
+      const name = nameFor(c.lat, c.lng);
+      return { ...c, name, country: countryOf(name) };
+    });
 };
 
-const Globe = ({ onHoverPlace }) => {
+const Globe = ({ onHoverPlace, onPlaces, controlRef }) => {
   const mountRef = useRef(null);
   // Held in a ref so the scene effect never has to re-run when the
   // parent re-renders.
@@ -709,6 +726,10 @@ const Globe = ({ onHoverPlace }) => {
   useEffect(() => {
     hoverCbRef.current = onHoverPlace;
   }, [onHoverPlace]);
+  const placesCbRef = useRef(onPlaces);
+  useEffect(() => {
+    placesCbRef.current = onPlaces;
+  }, [onPlaces]);
   const zoomOutRef = useRef(null);
   const [zoomedIn, setZoomedIn] = useState(false);
 
@@ -1026,6 +1047,13 @@ const Globe = ({ onHoverPlace }) => {
 
         // Clusters are no longer drawn — they're only click targets now.
         clusters = clusterRoutes(decoded, distances);
+        if (placesCbRef.current) {
+          placesCbRef.current({
+            clusters,
+            runs: routeData.routes.length,
+            km: distances.reduce((sum, d) => sum + d, 0) / 1000,
+          });
+        }
 
         const d0 = camera.position.z;
         heatMesh.material.opacity = heatTargetFor(d0);
@@ -1195,17 +1223,22 @@ const Globe = ({ onHoverPlace }) => {
       });
     };
 
-    const onClick = (e) => {
-      if (dragMoved > 6) return; // that was a drag, not a click
-      const c = clusterUnderPointer(e);
-      if (!c) return;
-      // Also reports on click so the label is reachable on touch, where
-      // there is no hover.
+    // Turns a place to face the camera and dives in on it. Also
+    // reports it so the label is reachable on touch, where there is no
+    // hover.
+    const flyToCluster = (c) => {
+      velocity = 0;
       report(c);
       const dir = latLngToVector3(c.lat, c.lng, 1)
         .applyQuaternion(world.quaternion)
         .normalize();
       flyToDirection(dir, MIN_DIST / baseDistance());
+    };
+
+    const onClick = (e) => {
+      if (dragMoved > 6) return; // that was a drag, not a click
+      const c = clusterUnderPointer(e);
+      if (c) flyToCluster(c);
     };
 
     const onHover = (e) => {
@@ -1254,6 +1287,7 @@ const Globe = ({ onHoverPlace }) => {
       report(null);
       fly = { quat: world.quaternion.clone(), zoom: 1 };
     };
+    if (controlRef) controlRef.current = { flyTo: flyToCluster, zoomOut: zoomOutRef.current };
 
     renderer.domElement.style.cursor = 'grab';
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
@@ -1408,8 +1442,15 @@ const Globe = ({ onHoverPlace }) => {
           .applyQuaternion(world.quaternion)
           .dot(camera.position.clone().normalize());
         // Gone over the horizon, which is much nearer when zoomed in.
-        if (facing < RADIUS / camera.position.z) report(null);
-        else {
+        // Mid-flight it is only hidden, not forgotten: a place picked
+        // from the list often starts on the far side of the globe.
+        if (facing < RADIUS / camera.position.z) {
+          if (!fly) report(null);
+          else if (labelAt) {
+            labelAt = null;
+            if (hoverCbRef.current) hoverCbRef.current(null);
+          }
+        } else {
           const { x, y } = screenPositionOf(labelled);
           if (!labelAt || Math.abs(x - labelAt.x) + Math.abs(y - labelAt.y) > 0.5) report(labelled);
         }
@@ -1446,7 +1487,10 @@ const Globe = ({ onHoverPlace }) => {
       composer.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
+      if (controlRef) controlRef.current = null;
     };
+    // controlRef is a ref object and never changes identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
