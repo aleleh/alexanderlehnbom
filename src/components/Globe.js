@@ -1276,7 +1276,16 @@ const Globe = ({ onHoverPlace, onPlaces, controlRef }) => {
       frameCamera();
     };
 
+    // The globe sits on top of a scrolling page, so the wheel is shared:
+    // scrolling down from the whole-globe view, or up while the page is
+    // scrolled, moves the page. Otherwise it zooms. A trackpad pinch
+    // (ctrlKey) or a modifier always zooms.
     const onWheel = (e) => {
+      const forceZoom = e.ctrlKey || e.metaKey;
+      if (!forceZoom) {
+        if (e.deltaY > 0 && zoom >= 0.999 && !fly) return;
+        if (e.deltaY < 0 && window.scrollY > 0) return;
+      }
       e.preventDefault();
       zoomBy(THREE.MathUtils.clamp(1 + e.deltaY * 0.0012, 0.9, 1.12), e);
     };
@@ -1383,12 +1392,19 @@ const Globe = ({ onHoverPlace, onPlaces, controlRef }) => {
     };
 
     // ── Loop ─────────────────────────────────────────────────
+    let onScreen = true;
+    const visibility = new IntersectionObserver(([entry]) => {
+      onScreen = entry.isIntersecting;
+    });
+    visibility.observe(mount);
     let frame;
     const clock = new THREE.Clock();
 
     const animate = () => {
       frame = requestAnimationFrame(animate);
       const delta = Math.min(clock.getDelta(), 0.1);
+      // Scrolled out of view: keep the clock ticking but skip the GPU work.
+      if (!onScreen) return;
       const ease = (rate) => 1 - Math.exp(-delta * rate);
 
       if (fly) {
@@ -1415,6 +1431,9 @@ const Globe = ({ onHoverPlace, onPlaces, controlRef }) => {
       if (isZoomedIn !== zoomedIn) {
         zoomedIn = isZoomedIn;
         setZoomedIn(isZoomedIn);
+        // From orbit a vertical swipe scrolls the page and a sideways
+        // one spins the globe. Zoomed in, every gesture is the globe's.
+        mount.style.touchAction = isZoomedIn ? 'none' : 'pan-y';
       }
 
       updateDetail(performance.now());
@@ -1465,6 +1484,7 @@ const Globe = ({ onHoverPlace, onPlaces, controlRef }) => {
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', onResize);
       resizeObserver.disconnect();
+      visibility.disconnect();
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);

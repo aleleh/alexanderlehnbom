@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BiLogoLinkedinSquare } from 'react-icons/bi';
 import { FaStrava } from 'react-icons/fa';
-import { HiOutlineMail, HiOutlineLocationMarker, HiX } from 'react-icons/hi';
+import { HiOutlineMail, HiOutlineLocationMarker, HiX, HiArrowDown } from 'react-icons/hi';
 import Globe from './components/Globe';
+import Work from './components/Work';
+import { EMAIL, HERO, LINKEDIN, RESUME_URL, STRAVA } from './profile';
 
-const EMAIL = 'alexander.lehnbom@gmail.com';
 const MAILTO = `mailto:${EMAIL}?subject=${encodeURIComponent('hello from alexanderlehnbom.com')}`;
 const HINT_KEY = 'globe-hint-seen';
 
@@ -110,7 +111,8 @@ function App() {
   };
 
   return (
-    <div className="stage">
+    <>
+    <div className="stage" id="top">
       <Globe onHoverPlace={handleHoverPlace} onPlaces={handlePlaces} controlRef={globeRef} />
 
       <div className="overlay">
@@ -118,7 +120,7 @@ function App() {
           <span className="wordmark">alexander lehnbom</span>
           <nav className="bar-links">
             <a
-              href="https://www.strava.com/athletes/alexlehnbom"
+              href={STRAVA}
               target="_blank"
               rel="noopener noreferrer"
               className="icon-link"
@@ -127,7 +129,7 @@ function App() {
               <FaStrava />
             </a>
             <a
-              href="https://www.linkedin.com/in/alehnbom/"
+              href={LINKEDIN}
               target="_blank"
               rel="noopener noreferrer"
               className="icon-link"
@@ -142,17 +144,31 @@ function App() {
           </nav>
         </header>
 
-        {data && (
-          <p className="totals">
-            <strong>{fmt(data.runs)}</strong> runs · <strong>{fmt(data.km)}</strong> km ·{' '}
-            <strong>{groups.length}</strong> {groups.length === 1 ? 'country' : 'countries'}
-          </p>
-        )}
+        <section className="hero" aria-labelledby="hero-title">
+          <h1 id="hero-title">{HERO.role}</h1>
+          <p className="hero-pitch">{HERO.pitch}</p>
+          <div className="hero-actions">
+            <a className="solid-button" href="#work">
+              see my work <HiArrowDown />
+            </a>
+            {RESUME_URL && (
+              <a className="ghost-button" href={RESUME_URL} target="_blank" rel="noopener noreferrer">
+                résumé
+              </a>
+            )}
+          </div>
+          {data && (
+            <p className="totals">
+              <strong>{fmt(data.runs)}</strong> runs · <strong>{fmt(data.km)}</strong> km ·{' '}
+              <strong>{groups.length}</strong> {groups.length === 1 ? 'country' : 'countries'}
+            </p>
+          )}
+        </section>
 
         {showHint && data && (
           <p className="hint" aria-hidden="true">
-            <span className="hint-fine">drag to spin · scroll to zoom · click a glow</span>
-            <span className="hint-coarse">drag to spin · pinch to zoom · tap a glow</span>
+            <span className="hint-fine">drag to spin · click a glow to fly there</span>
+            <span className="hint-coarse">swipe sideways to spin · tap a glow</span>
           </p>
         )}
       </div>
@@ -218,6 +234,8 @@ function App() {
         </div>
       )}
     </div>
+    <Work />
+    </>
   );
 }
 
