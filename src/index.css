@@ -24,7 +24,16 @@ body {
   font-family: 'Clash Grotesk', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow: hidden;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 /* ── Stage ─────────────────────────────────────────────── */
@@ -48,9 +57,10 @@ body {
   position: absolute;
   inset: 0;
   z-index: 1;
-  /* The globe handles drag and pinch itself; without this the browser
-     scrolls or zooms the page instead. */
-  touch-action: none;
+  /* Sideways drags and pinches belong to the globe; vertical swipes
+     still scroll the page. Globe.js switches this to none once
+     zoomed in, where every gesture should move the map. */
+  touch-action: pan-y;
 }
 
 .zoom-out {
@@ -158,6 +168,595 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+
+/* ── Hero ──────────────────────────────────────────────── */
+.hero {
+  margin-top: clamp(2rem, 9vh, 5.5rem);
+  max-width: 25rem;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(1.9rem, 3.6vw, 2.9rem);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+}
+
+.hero-pitch {
+  margin: 1rem 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1.4rem;
+  pointer-events: auto;
+}
+
+.solid-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 500;
+  font-size: 0.95rem;
+  text-decoration: none;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.solid-button:hover {
+  color: #fff;
+  background: #ff6420;
+  transform: translateY(-1px);
+}
+
+.hero-actions .ghost-button {
+  padding: 0.5rem 1.1rem;
+  background: rgba(5, 7, 12, 0.5);
+}
+
+/* ── Totals + first-visit hint ─────────────────────────── */
+.totals {
+  margin: 1.4rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.totals strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.hint {
+  position: absolute;
+  left: 50%;
+  bottom: 2.4rem;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.45rem 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(5, 7, 12, 0.6);
+  backdrop-filter: blur(6px);
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+  animation: hint-in 0.8s ease 1.2s both;
+}
+
+.hint-coarse {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .hint-fine {
+    display: none;
+  }
+  .hint-coarse {
+    display: inline;
+  }
+}
+
+@keyframes hint-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hint {
+    animation: none;
+  }
+}
+
+/* ── Places list ───────────────────────────────────────── */
+.places-toggle {
+  position: absolute;
+  z-index: 3;
+  left: clamp(1.25rem, 4vw, 3rem);
+  bottom: 2rem;
+  background: rgba(5, 7, 12, 0.6);
+  backdrop-filter: blur(6px);
+}
+
+.places-toggle[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+
+.places {
+  position: absolute;
+  z-index: 4;
+  left: clamp(1.25rem, 4vw, 3rem);
+  bottom: 4.9rem;
+  width: 290px;
+  max-height: min(60dvh, 520px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(5, 7, 12, 0.82);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+}
+
+.places-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0.9rem 0.5rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.places-close {
+  display: inline-flex;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.1rem;
+  padding: 0.25rem;
+  cursor: pointer;
+}
+
+.places-close:hover {
+  color: var(--ink);
+}
+
+.places-scroll {
+  overflow-y: auto;
+  padding: 0 0.4rem 0.6rem;
+  overscroll-behavior: contain;
+}
+
+.places-group h2 {
+  margin: 0.7rem 0.6rem 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.places-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.places-group button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.4rem 0.6rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.places-group button:hover,
+.places-group button:focus-visible {
+  background: rgba(252, 76, 2, 0.14);
+  outline: none;
+}
+
+.places-stats {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* ── Work (below the globe) ────────────────────────────── */
+.work {
+  position: relative;
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: clamp(3.5rem, 9vw, 7rem) clamp(1.25rem, 4vw, 3rem) 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(3.5rem, 8vw, 6rem);
+  line-height: 1.55;
+}
+
+.work section {
+  scroll-margin-top: 2rem;
+}
+
+.eyebrow {
+  margin: 0 0 1rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chips li {
+  padding: 0.18rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.8rem;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-underline-offset: 4px;
+}
+
+.text-link:hover {
+  color: var(--accent);
+}
+
+/* About */
+.about {
+  display: grid;
+  grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+  gap: clamp(1.5rem, 5vw, 4rem);
+  align-items: center;
+}
+
+.about-photo {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+}
+
+.about-text {
+  margin: 0 0 1rem;
+  font-size: clamp(1.05rem, 1.6vw, 1.25rem);
+  max-width: 38rem;
+}
+
+.about-meta {
+  margin: 1.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+/* Featured case study */
+.featured {
+  padding: clamp(1.5rem, 4vw, 2.75rem);
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(252, 76, 2, 0.16), transparent 55%),
+    rgba(255, 255, 255, 0.025);
+}
+
+.featured h3 {
+  margin: 0;
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.featured-summary {
+  margin: 0.9rem 0 1.5rem;
+  max-width: 44rem;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.featured-points {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 0.9rem 2rem;
+  margin: 0 0 1.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.featured-points li {
+  position: relative;
+  padding-left: 1.1rem;
+  font-size: 0.94rem;
+}
+
+.featured-points li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.featured-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  font-size: 0.95rem;
+}
+
+/* Projects */
+.projects {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+
+.project {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.25rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+
+.project:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: rgba(252, 76, 2, 0.06);
+  transform: translateY(-2px);
+}
+
+.project-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.project-desc {
+  color: var(--muted);
+  font-size: 0.92rem;
+  flex: 1;
+}
+
+/* Experience + skills */
+.two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: clamp(2.5rem, 6vw, 5rem);
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--line);
+}
+
+.timeline li {
+  position: relative;
+  padding: 0 0 1.75rem 1.4rem;
+}
+
+.timeline li::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 0.5em;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 2px solid var(--accent);
+}
+
+.timeline-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+}
+
+.timeline-role {
+  font-weight: 600;
+}
+
+.timeline-org {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.timeline-when {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.94rem;
+}
+
+.skill-group + .skill-group {
+  margin-top: 1.25rem;
+}
+
+.skill-group h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+
+/* Stats + builds */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 1rem;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1.25rem 1.25rem 1.4rem;
+  border-top: 2px solid var(--accent);
+  background: rgba(255, 255, 255, 0.025);
+  border-radius: 0 0 12px 12px;
+}
+
+.stat-value {
+  font-size: clamp(1.7rem, 3vw, 2.3rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.builds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: 1rem;
+}
+
+.build {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1.4rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.build h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.build p {
+  margin: 0;
+  flex: 1;
+  color: var(--muted);
+  font-size: 0.93rem;
+}
+
+.timeline-org {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.education ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.9rem;
+}
+
+.education li + li {
+  margin-top: 0.35rem;
+}
+
+.education span {
+  color: var(--muted);
+}
+
+/* Contact */
+.cta {
+  text-align: center;
+  padding: clamp(2.5rem, 6vw, 4rem) 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.cta h2 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.4rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.cta p {
+  margin: 0.75rem 0 1.75rem;
+  color: var(--muted);
+}
+
+.cta-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+}
+
+.cta-actions .ghost-button {
+  padding: 0.5rem 1.1rem;
+}
+
+.footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 @media (max-width: 600px) {
   .overlay {
     padding: 1.25rem;
@@ -165,6 +764,32 @@ body {
 
   .wordmark {
     font-size: 0.95rem;
+  }
+
+  .hero {
+    margin-top: 1.5rem;
+  }
+
+  .hero-pitch {
+    font-size: 0.92rem;
+  }
+
+  .hero .totals {
+    display: none;
+  }
+
+  .about,
+  .two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .about-photo {
+    max-width: 12rem;
+  }
+
+  .cta-actions .solid-button {
+    width: 100%;
+    justify-content: center;
   }
 
   .ghost-button span {
@@ -184,5 +809,36 @@ body {
     right: 1.25rem;
     bottom: 1.25rem;
     padding: 0.5rem 0.9rem;
+  }
+
+  .totals {
+    font-size: 0.8rem;
+  }
+
+  .hint {
+    bottom: 4.6rem;
+    font-size: 0.8rem;
+  }
+
+  .places-toggle {
+    left: 1.25rem;
+    bottom: 1.25rem;
+    padding: 0.5rem 0.9rem;
+  }
+
+  .places-toggle span {
+    display: inline;
+  }
+
+  /* A bottom sheet on phones. */
+  .places {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 62dvh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
